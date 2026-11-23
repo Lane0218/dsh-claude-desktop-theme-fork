@@ -1,8 +1,8 @@
 {
-  "name": "dsh-claude-desktop-theme",
-  "version": "0.10.6",
+  "name": "dsh-claude-desktop-theme-fork",
+  "version": "0.10.6-fork.1",
   "license": "MIT",
-  "description": "Claude Code Desktop-style theme for DeepSeek Harness (DSH) Desktop on macOS and Windows, with light/dark themes, model/effort pickers and an interactive pixel whale",
+  "description": "Local fork of dsh-claude-desktop-theme: the balance row now reads the signed-in account wallet through DSH's account service, falling back to the official API-key balance.",
   "author": "zkforge",
   "repository": {
     "type": "git",

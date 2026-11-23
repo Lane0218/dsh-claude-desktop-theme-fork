@@ -1,5 +1,5 @@
 - insert:
     - id: ui-skin-ccd-style
-      name: dsh-claude-desktop-theme
+      name: dsh-claude-desktop-theme-fork
       config:
         enabled: true
