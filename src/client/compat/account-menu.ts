@@ -4,7 +4,6 @@ import { mountAccountMore } from './account-more.ts';
 import { mountAccountTheme } from './account-theme.ts';
 import { mountAccountBalance, type AccountBalanceCache } from './account-balance.ts';
 import { recordsInTranscript } from './mutation-scope.ts';
-import { openPluginFeedback } from './plugin-feedback.ts';
 
 /** Marks the portalled account menu for the stylesheet. */
 export const ACCOUNT_MENU_ATTRIBUTE = 'data-ccd-account-menu';
@@ -83,6 +82,11 @@ export function mountAccountMenu(
   let balanceOwner: HTMLElement | null = null;
   let disposeSidebarBalance: Disposer = () => {};
   const clearSidebarBalance = () => {
+    if (balanceOwner) {
+      balanceOwner.style.removeProperty('position');
+      balanceOwner.style.removeProperty('align-items');
+      balanceOwner.style.removeProperty('gap');
+    }
     disposeSidebarBalance();
     disposeSidebarBalance = () => {};
     balanceSlot?.remove();
@@ -92,19 +96,6 @@ export function mountAccountMenu(
   let trigger: HTMLElement | null = null;
   let scheduled = 0;
   let closeFeedback = () => {};
-  const bug = document.createElement('button');
-  bug.type = 'button';
-  bug.setAttribute('data-ccd-plugin-feedback', '');
-  const zh = (document.documentElement.lang || document.defaultView?.navigator?.language || '').toLowerCase().startsWith('zh');
-  const bugLabel = zh ? '插件 UI Bug 反馈' : 'Report a plugin UI bug';
-  bug.setAttribute('aria-label', bugLabel);
-  bug.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><g transform="rotate(45 12 12)"><path d="M8 9h8v7a4 4 0 0 1-8 0V9Zm2 0V6a2 2 0 0 1 4 0v3M12 10v9M6 4l3 3m6 0 3-3M4 10l4 2m8 0 4-2M3 16h5m8 0h5M6 22l3-3m6 0 3 3"/></g></svg>';
-  bug.addEventListener('click', event => {
-    event.stopPropagation();
-    closeFeedback();
-    closeFeedback = openPluginFeedback(document);
-  });
-
   const clear = () => {
     for (const dispose of additions.values()) dispose();
     additions.clear();
@@ -118,7 +109,6 @@ export function mountAccountMenu(
 
   const sync = () => {
     scheduled = 0;
-    if (trigger?.parentElement && bug.previousElementSibling !== trigger) trigger.after(bug);
     const sidebar = trigger?.closest<HTMLElement>(host.sidebarRoot);
     const expanded = sidebar && !sidebar.matches(host.sidebarCollapsed);
     const name = trigger?.querySelector(host.accountLabel)?.textContent?.trim() ?? '';
@@ -131,13 +121,29 @@ export function mountAccountMenu(
     const foot = (showApiBalance && expanded ? trigger?.closest<HTMLElement>(host.sidebarFootArea) : null) ?? null;
     if (balanceOwner !== foot || (balanceSlot && !balanceSlot.isConnected)) clearSidebarBalance();
     if (foot?.parentElement && !balanceSlot) {
+      /* The footer keeps its own layout; the balance rides its right edge. The
+         identity row gives that width up so the two hit areas never overlap. */
+      foot.style.setProperty('position', 'relative');
+      if (trigger) {
+        trigger.style.setProperty('max-width', 'calc(100% - 112px)');
+      }
       balanceSlot = document.createElement('div');
       balanceSlot.setAttribute('data-ccd-balance-slot', '');
-      foot.before(balanceSlot);
+      foot.append(balanceSlot);
       balanceOwner = foot;
       disposeSidebarBalance = mountAccountBalance(balanceSlot, balanceCache, 'sidebar');
       // An already-open rail menu no longer needs its own balance reader.
       clear();
+    }
+    /* Centre the capsule on the identity row itself, not on the footer box:
+       the footer carries its own padding, which put the two lines apart. */
+    if (balanceSlot && trigger && foot) {
+      /* Rect-based: `offsetTop` is relative to the nearest positioned ancestor,
+         which is not necessarily the footer, and it measured ~7px high. */
+      const box = foot.getBoundingClientRect();
+      const row = trigger.getBoundingClientRect();
+      const centre = row.top + row.height / 2 - box.top;
+      balanceSlot.style.setProperty('top', `${Math.round(centre)}px`);
     }
     const open = trigger?.getAttribute('aria-expanded') === 'true';
     if (!open) {
@@ -239,7 +245,6 @@ export function mountAccountMenu(
     resize.disconnect();
     clear();
     clearSidebarBalance();
-    bug.remove();
     closeFeedback();
     report(error);
     return () => {};
@@ -253,7 +258,6 @@ export function mountAccountMenu(
     document.defaultView?.removeEventListener('resize', schedule);
     clear();
     clearSidebarBalance();
-    bug.remove();
     closeFeedback();
   };
 }

@@ -98,20 +98,6 @@ html[data-dsh-ccd-style="true"] [data-collapsed="true"] + [data-ccd-plugin-feedb
   display: none;
 }
 
-/* The expanded launcher ends in the reference's small downward chevron,
-   including while its menu is open. Keep a fixed icon seat after the label so
-   long names ellipsize before it; the collapsed rail only shows the avatar. */
-html[data-dsh-ccd-style="true"] .ZogL4G_trigger:not([data-collapsed="true"])::after {
-  content: "";
-  width: 12px;
-  height: 12px;
-  flex: none;
-  margin-inline-start: auto;
-  background: var(--ccd-text-muted);
-  mask: var(--ccd-icon-chevron-right) center / 12px 12px no-repeat;
-  transform: rotate(90deg);
-  pointer-events: none;
-}
 
 html[data-dsh-ccd-style="true"] [data-ccd-account-menu] {
   box-sizing: border-box;
@@ -278,6 +264,8 @@ html[data-dsh-ccd-style="true"] [data-ccd-balance-slot] {
 html[data-dsh-ccd-style="true"] [data-ccd-account-balance][data-ccd-balance-card] {
   display: grid;
   grid-template-columns: 14px auto minmax(0, 1fr);
+  /* One optical line: the 14px mark, the label and the 22px amount share it. */
+  align-items: center;
   gap: 4px 6px;
   min-width: 0;
   padding: 6px;
@@ -325,7 +313,9 @@ html[data-dsh-ccd-style="true"] [data-ccd-balance-details] {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-start;
+  /* The badge closes the same right edge as the amount above it, so the two
+     lines read as one column instead of drifting apart. */
+  justify-content: flex-end;
   gap: 2px 8px;
   min-width: 0;
   font-size: 11px;
@@ -339,11 +329,13 @@ html[data-dsh-ccd-style="true"] .ccd-balance-period {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   margin-inline-start: auto;
-  padding: 0 5px 0 4px;
-  border-radius: 4px;
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  /* Plain ink, no capsule: the footer ledger stays one quiet line, and the
+     peak/off-peak ink is the only signal. */
+  padding: 0;
+  border-radius: 0;
+  background: none;
   color: var(--ccd-price-off-peak);
   font-size: 11px;
   font-weight: 500;
@@ -615,4 +607,53 @@ html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] button:focus-v
 
 html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] [data-ccd-primary]:focus-visible {
   box-shadow: 0 0 0 2px var(--ccd-card), 0 0 0 3px var(--ccd-dialog-danger-ring), var(--ccd-dialog-danger-glow);
+}
+
+/* The fork puts the balance on the account row's right edge. The footer keeps
+   its own layout: the slot is taken out of flow and centred vertically, so the
+   identity row never reflows. */
+html[data-dsh-ccd-style="true"] [data-ccd-balance-slot] {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  pointer-events: auto;
+}
+
+/* A real capsule: the padding is the hit area the hover hint needs, and the
+   tint keeps the amount reading as one control rather than loose text. */
+html[data-dsh-ccd-style="true"] [data-ccd-balance-slot] [data-ccd-account-balance] {
+  display: flex;
+  align-items: center;
+  /* A capsule without a border: the amber tint carries it, and the fixed height
+     keeps it on the identity row's own line. */
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 0;
+  background: color-mix(in srgb, var(--ccd-text) 8%, transparent);
+  color: var(--ccd-text);
+  font-weight: 500;
+  transition: background-color 120ms ease;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-balance-slot] [data-ccd-account-balance]:hover {
+  background: color-mix(in srgb, var(--ccd-text) 13%, transparent);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-balance-slot] [data-ccd-account-balance] > svg,
+html[data-dsh-ccd-style="true"] [data-ccd-balance-slot] [data-ccd-account-balance] > span:first-of-type {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-balance-slot] [data-ccd-balance-amount] {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
 }

@@ -30,19 +30,20 @@ export function mountAccountBalance(
   row.setAttribute('data-ccd-account-balance', '');
   row.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20A10 10 0 0 1 15.8 3.75M21.8 11A10 10 0 0 1 19 20"/><circle cx="12" cy="13" r="2.2"/><path d="m13.56 11.44 5.19-5.19"/></svg>';
   const label = document.createElement('span');
-  label.textContent = sidebar ? (zh ? 'API 余额' : 'API balance') : zh ? '余额' : 'Balance';
+  label.textContent = sidebar ? (zh ? '账户余额' : 'Account balance') : zh ? '余额' : 'Balance';
   const amount = document.createElement('span');
   amount.setAttribute('data-ccd-balance-amount', '');
   amount.setAttribute('aria-live', 'polite');
   amount.textContent = cache.text ?? '—';
-  row.ariaDescription = cache.description ?? (zh ? 'DeepSeek 官方 API 余额（人民币），点击刷新' : 'DeepSeek API balance (CNY), click to refresh');
+  row.ariaDescription = cache.description ?? (zh ? 'DeepSeek 账户余额（人民币），点击刷新' : 'DeepSeek account balance (CNY), click to refresh');
   row.append(label, amount);
-  const details = document.createElement('span');
-  details.setAttribute('data-ccd-balance-details', '');
+  const details = placement === 'menu' ? document.createElement('span') : null;
+  details?.setAttribute('data-ccd-balance-details', '');
   const storage = (() => { try { return document.defaultView?.localStorage; } catch { return undefined; } })();
   // The price period sits below the label; the balance breakdown and spend
   // stay in the hover hint.
   const updateDetails = () => {
+    if (details === null) return;
     if (!sidebar) return;
     details.replaceChildren();
     const view = cache.balance;
@@ -63,7 +64,7 @@ export function mountAccountBalance(
     row.setAttribute('data-balance-state', view ? 'ready' : 'unavailable');
   };
   if (sidebar) {
-    row.append(details);
+    if (details !== null) row.append(details);
     menu.append(row);
     updateDetails();
   } else anchor!.after(row);
@@ -109,12 +110,16 @@ export function mountAccountBalance(
         && /^-?\d+(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value));
       if (data.state === 'ready' && balance && [balance.total, balance.granted, balance.toppedUp].every(validAmount)) {
         const total = toCents(balance.total);
-        const ledger = recordBalance(loadLedger(storage), total, Date.now());
+        const previous = loadLedger(storage);
+        const ledger = recordBalance(previous, total, Date.now());
         saveLedger(storage, ledger);
+        // The first read of a day has no earlier total to diff against, so the
+        // day's spend is unknown rather than zero.
+        const firstRead = previous === null || previous.day !== ledger.day;
         const rate = dailyRate(ledger);
         const view: AccountBalanceView = {
           balance: { total: balance.total, toppedUp: balance.toppedUp, granted: balance.granted },
-          today: yuan(ledger.spent),
+          today: firstRead ? null : yuan(ledger.spent),
           rate: rate.cents > 0 ? yuan(rate.cents) : null,
           rateDays: rate.days,
           days: remainingDays(total, rate.cents),
@@ -122,20 +127,21 @@ export function mountAccountBalance(
         cache.balance = view;
         amount.textContent = `¥${balance.total}`;
         const runway = view.days === null ? '' : zh ? `，约可用 ${view.days} 天` : `, about ${view.days} days left`;
+        const todayText = view.today === null ? '—' : `¥${view.today}`;
         row.ariaDescription = zh
-          ? `DeepSeek 官方 API · 人民币\n总余额 ¥${balance.total}\n今日消耗 ¥${view.today}${runway}\n充值余额 ¥${balance.toppedUp}\n赠金余额 ¥${balance.granted}\n点击刷新`
-          : `DeepSeek API · CNY\nTotal ¥${balance.total}\nSpent today ¥${view.today}${runway}\nTop-up ¥${balance.toppedUp}\nGranted ¥${balance.granted}\nClick to refresh`;
+          ? `DeepSeek 账户 · 人民币\n总余额 ¥${balance.total}\n今日消耗 ${todayText}${runway}\n充值余额 ¥${balance.toppedUp}\n赠金余额 ¥${balance.granted}\n点击刷新`
+          : `DeepSeek account · CNY\nTotal ¥${balance.total}\nSpent today ${todayText}${runway}\nTop-up ¥${balance.toppedUp}\nGranted ¥${balance.granted}\nClick to refresh`;
       } else {
         delete cache.balance;
         const messages: Record<string, string> = {
-          unconfigured: zh ? '未配置 API Key' : 'API key not configured',
+          unconfigured: zh ? '未登录 / 未配置 Key' : 'Not signed in',
           unauthorized: zh ? 'API Key 无效' : 'Invalid API key',
           'no-cny': zh ? '无人民币余额' : 'No CNY balance',
         };
         amount.textContent = messages[data.state] ?? (zh ? '查询失败' : 'Unavailable');
         row.ariaDescription = data.state === 'unconfigured'
-          ? (zh ? '请在设置 → 模型中配置 DeepSeek 官方 API Key' : 'Configure the official DeepSeek API key in Settings → Models')
-          : (zh ? 'DeepSeek 官方 API 余额 · 点击重试' : 'DeepSeek API balance · Click to retry');
+          ? (zh ? '请先登录 DeepSeek 账号，或在设置 → 模型中配置官方 API Key' : 'Sign in to DeepSeek, or configure the official API key in Settings → Models')
+          : (zh ? 'DeepSeek 账户余额 · 点击重试' : 'DeepSeek account balance · Click to retry');
       }
     } catch (error) {
       if (!disposed) {
@@ -143,7 +149,7 @@ export function mountAccountBalance(
         amount.textContent = zh ? '查询失败 · 重试' : 'Unavailable · Retry';
         const reason = read.signal.aborted ? (zh ? '查询超时' : 'Request timed out')
           : error instanceof Error ? error.message : (zh ? '连接失败' : 'Connection failed');
-        row.ariaDescription = `${zh ? 'DeepSeek 官方 API 余额' : 'DeepSeek API balance'}\n${reason}\n${zh ? '点击重试' : 'Click to retry'}`;
+        row.ariaDescription = `${zh ? 'DeepSeek 账户余额' : 'DeepSeek account balance'}\n${reason}\n${zh ? '点击重试' : 'Click to retry'}`;
       }
     } finally {
       clearTimeout(deadline);
