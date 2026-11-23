@@ -41,6 +41,13 @@ export function mountSidebarNavigation(
   const added = new Set<HTMLElement>();
   const texts = new Map<Text, { original: string; drawn: string }>();
   const attributes = new Map<Element, Map<string, { original: string | null; drawn: string }>>();
+  const styles = new Set<[HTMLElement, string]>();
+  const styleOf = (element: HTMLElement | null | undefined, property: string, value: string) => {
+    if (!element) return;
+    if (element.style.getPropertyValue(property) === value) return;
+    styles.add([element, property]);
+    element.style.setProperty(property, value);
+  };
   let root: HTMLElement | null = null;
   let observer: MutationObserver | undefined;
   let language: MutationObserver | undefined;
@@ -105,14 +112,34 @@ export function mountSidebarNavigation(
       }
       if (row.querySelector(`[${THEME_PANEL_GLYPH_ATTRIBUTE}]`)) {
         decorate(row, row.querySelector(host.sidebarPanelGlyph), 'theme');
+        /* The fork keeps three rows; the rest live in More, which lists every
+           panel already. */
+        attribute(row, 'data-ccd-nav-hidden', '');
         continue;
       }
       const kind = panelKind(row.getAttribute('aria-label') ?? row.querySelector(host.sidebarPanelTitle)?.textContent?.trim() ?? '');
       if (!kind) continue;
+      if (kind === 'plugins' || kind === 'routines') {
+        attribute(row, 'data-ccd-nav-hidden', '');
+        continue;
+      }
       decorate(row, row.querySelector(host.sidebarPanelGlyph), kind);
       label(row.querySelector(host.sidebarPanelTitle), names[kind]);
       attribute(row, 'aria-label', names[kind]);
     }
+    /* The gap between the navigation block and the first Workspace is built
+       from host class rules whose names are hashed per build, so it is
+       collapsed inline here instead. */
+    /* Resolved structurally: a decorated navigation row and the sidebar's own
+       data attributes, so no host class hash is involved. */
+    const navRow = document.querySelector<HTMLElement>('[data-ccd-nav]');
+    const list = navRow?.parentElement ?? null;
+    styleOf(list, 'margin-bottom', '0px');
+    styleOf(list?.nextElementSibling as HTMLElement | null, 'margin-top', '0px');
+    styleOf(list?.parentElement as HTMLElement | null, 'grid-template-rows', '0 max-content 0 max-content');
+    styleOf(list?.parentElement as HTMLElement | null, 'row-gap', '0px');
+    styleOf(document.querySelector<HTMLElement>('[data-sidebar-workspace-header]'), 'height', '28px');
+
     // Tooltip uses the host's original localized label, independent of aria-label.
     const tooltipOwner = root?.querySelector<HTMLElement>('[data-ccd-nav]:hover, [data-ccd-nav]:focus-visible');
     const tooltipKind = tooltipOwner?.getAttribute(SIDEBAR_NAV_ATTRIBUTE);
@@ -128,6 +155,8 @@ export function mountSidebarNavigation(
   };
 
   const restore = () => {
+    for (const [element, property] of styles) element.style.removeProperty(property);
+    styles.clear();
     for (const node of added) node.remove();
     for (const [node, record] of texts) if (node.data === record.drawn) node.data = record.original;
     for (const [element, entries] of attributes) for (const [name, record] of entries) {

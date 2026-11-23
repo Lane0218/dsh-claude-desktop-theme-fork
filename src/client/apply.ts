@@ -38,6 +38,8 @@ import { mountSidebarSearch } from './compat/sidebar-search.ts';
 import { mountSidebarMoreMenu } from './compat/sidebar-more-menu.ts';
 import { headerMenuActions } from './compat/header-menu-actions.ts';
 import { mountHeaderMenus } from './compat/header-menus.ts';
+import { mountComposerAutoScroll } from './compat/composer-autoscroll.ts';
+import { mountHostRules } from './compat/host-rules.ts';
 import { createDomPort } from './compat/dom.ts';
 import { CleanupScope } from './core/cleanup.ts';
 import { mountFeatures } from './core/mount-features.ts';
@@ -220,6 +222,12 @@ export function apply(ctx: Context): void {
           ));
           mountHeaderActions(ctx, environment, scope);
           scope.add(mountHeaderMenus(document, headerMenuActions(ctx), error => logger.error('header menus: operation failed', error)));
+          /* Enter is the fork's only send path, so the transcript follows the
+             tail right after that keystroke. */
+          scope.add(mountComposerAutoScroll(
+            document,
+            error => logger.error('conversation: auto-scroll listener failed', error),
+          ));
         }
         if (next.features.conversation || next.features['new-session']) {
           mountModelControls(ctx, environment, scope);
@@ -233,6 +241,12 @@ export function apply(ctx: Context): void {
            plugin owns; both follow the sidebar switch that draws the trigger. */
         if (next.features.sidebar) {
           const view = mountViewOptions(ctx, environment, scope);
+          /* The trigger goes away with the fork; the card it drives stays
+             reachable only through configuration. */
+          scope.add(mountHostRules(
+            document,
+            error => logger.error('sidebar: host rules could not be applied', error),
+          ));
           /* Search is a navigation row that opens the plugin's palette; the
              host's ⌘K reaches the same palette through its hidden field. */
           scope.add(mountSidebarSearch(
@@ -245,6 +259,11 @@ export function apply(ctx: Context): void {
             document,
             error => logger.error('sidebar: more menu placement failed', error),
           ));
+          /* Workspace grouping keeps every native status mark: the stylesheet
+             hides the resting and empty ones only in the status view, so the
+             document carries the mode for those rules to read. */
+          document.documentElement.toggleAttribute('data-ccd-workspace-groups', !next.view.groupByStatus);
+          scope.add(() => document.documentElement.removeAttribute('data-ccd-workspace-groups'));
           if (next.view.groupByStatus) {
             scope.add(mountStatusGroups(document, ctx,
               error => logger.error('sidebar: status grouping failed', error)));
