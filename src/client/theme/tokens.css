@@ -62,7 +62,15 @@ html[data-dsh-ccd-style="true"] {
      one family. */
   --ccd-code-radius: 6px;
   --ccd-composer-width: 770px;
-  --ccd-composer-min-height: 42px;
+  --ccd-composer-min-height: 96px;
+  /* The editable area's own floor (two lines). The add and send controls lift by
+     half the surplus over their own box, so they read as centred in the field
+     instead of pinned to its bottom line. */
+  --ccd-composer-input-min-height: 72px;
+  /* No lift: the editor's text, the placeholder and both controls share the
+     field's bottom line, so the controls stay on that same line at any field
+     height (the editor grows upward from it). */
+  --ccd-composer-control-lift: 0px;
   /* Input reference: 26 device pixels at @2x. */
   --ccd-composer-radius: 13px;
   --ccd-composer-thumbnail-size: 120px;
@@ -443,7 +451,7 @@ html[data-dsh-ccd-style="true"] {
      with a 770px Composer at 1176 (1.53 device px per CSS px), so the two are
      read at one scale. The reference's paragraph-to-paragraph gap is 46 device
      px — this 20px line plus the 10px margin both sides already share. */
-  --ccd-transcript-line-height: 20px;
+  --ccd-transcript-line-height: 24px;
   /* The one step up from the host's own 400: used where a control has to read
      as a chosen value rather than as chrome (model, reasoning effort). */
   --ccd-font-weight-strong: 600;

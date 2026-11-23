@@ -221,9 +221,15 @@ html[data-dsh-ccd-style="true"] .yhfFVG_card .dVdiKa_thumbnail {
 html[data-dsh-ccd-style="true"] .yhfFVG_input,
 html[data-dsh-ccd-style="true"] .yhfFVG_hero .yhfFVG_input {
   box-sizing: border-box;
-  min-height: 24px;
-  /* Keep text clear of the controls, including when the editor scrolls. */
-  padding: 0 var(--ccd-send-reserve) 0 var(--ccd-composer-add-reserve);
+  /* Two lines of room by default, so the field reads as a composer rather than
+     a single-line box; the host still grows it further with the draft. */
+  min-height: var(--ccd-composer-input-min-height);
+  /* Official layout: the draft starts at the field's top line and grows down,
+     with the add and send controls in the row below the field. */
+  display: block;
+  /* The controls live in the row below the field now, so the draft owns the
+     field's full width instead of reserving room for two overlays. */
+  padding: 0 var(--ccd-composer-padding-inline);
   font-family: var(--ccd-font-ui);
   font-size: var(--dsh-content-font-size, 14px);
   line-height: 24px;
@@ -231,12 +237,16 @@ html[data-dsh-ccd-style="true"] .yhfFVG_hero .yhfFVG_input {
 }
 
 html[data-dsh-ccd-style="true"] .yhfFVG_placeholder {
+  /* The fork hides the in-field hint: an empty composer stays blank. */
+  display: none;
   /* Hero copy is longer than chat copy. Limit only the placeholder, leaving
      the actual editor's wrapping and multiline growth untouched. */
+  /* Bottom-anchored to the same line the draft and the controls use; the
+     editor's own padding supplies the left and right insets below. */
   inset: 0 0 auto 0;
   box-sizing: border-box;
-  padding-right: var(--ccd-send-reserve);
-  padding-left: var(--ccd-composer-add-reserve);
+  padding-right: var(--ccd-composer-padding-inline);
+  padding-left: var(--ccd-composer-padding-inline);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -252,10 +262,7 @@ html[data-dsh-ccd-style="true"] .yhfFVG_primary {
   /* The user agent's `1px 6px` button padding is asymmetric against a 24px box
      only in the sense that it steals the content box; drop it and centre. */
   padding: 0;
-  position: absolute;
-  top: auto;
-  bottom: calc(100% + var(--ccd-composer-row-gap) + var(--ccd-composer-padding-block) + 1px);
-  right: var(--ccd-composer-padding-inline);
+  position: static;
   width: var(--ccd-send-size);
   height: var(--ccd-send-size);
   border-radius: var(--ccd-send-radius);
@@ -263,6 +270,12 @@ html[data-dsh-ccd-style="true"] .yhfFVG_primary {
   color: var(--ccd-text-nav);
   transform: none;
   transition: background-color 0.1s, color 0.1s;
+}
+
+/* This fork removes the send control (Enter still sends). The stop control
+   carries a rect in its artwork, so only the arrow variant is hidden. */
+html[data-dsh-ccd-style="true"] .yhfFVG_primary:not(:has(rect)) {
+  display: none;
 }
 
 html[data-dsh-ccd-style="true"] .yhfFVG_primary:hover:not(:disabled) {
@@ -379,9 +392,7 @@ html[data-dsh-ccd-style="true"] .cl2Rlq_triggerEffort {
    its focus/selection-aware launcher stays intact. */
 html[data-dsh-ccd-style="true"] .yhfFVG_add {
   box-sizing: border-box;
-  position: absolute;
-  bottom: calc(100% + var(--ccd-composer-row-gap) + var(--ccd-composer-padding-block) + 1px);
-  left: var(--ccd-composer-padding-inline);
+  position: static;
   width: var(--ccd-send-size);
   height: var(--ccd-send-size);
   padding: 0;
@@ -465,6 +476,9 @@ html[data-dsh-ccd-style="true"] .yhfFVG_dock > * {
    its first tokens hands the seat over without moving or resizing anything. */
 html[data-dsh-ccd-style="true"] .yhfFVG_dock > .y0jqnG_root,
 html[data-dsh-ccd-style="true"] .yhfFVG_dock > .ccd-context-empty-trigger {
+  /* The fork removes the context ring under the composer: the right sidebar
+     already reports the same context usage. */
+  display: none;
   position: absolute;
   right: calc(-1 * var(--ccd-ring-offset));
   top: 0;
