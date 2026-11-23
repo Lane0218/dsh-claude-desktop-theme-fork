@@ -1,0 +1,794 @@
+/*
+ * Row configuration page.
+ *
+ * The page is drawn on the host's own settings surface and stays readable in
+ * both plugin states, so it consumes host `--dsw-*` tokens: while the plugin is
+ * enabled the theme layer has already pointed the surfaces and fonts that matter
+ * at the configured values, and while it is disabled the page still renders
+ * (that is how the interface is switched back on). The one exception is the
+ * segmented theme control below, whose recessed track and raised segment have a
+ * relationship the host's dark palette does not carry: it reads `--ccd-*` with a
+ * host fallback, so it follows both plugin palettes while enabled and keeps
+ * working (on host tokens) while disabled.
+ *
+ * Layout is one column of cards capped at a readable measure: the Plugins panel
+ * is wide, and a settings form stretched across it is hard to scan.
+ */
+
+.ccd-settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 760px;
+  margin-top: 16px;
+  padding-bottom: 24px;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-s-14);
+}
+
+.ccd-settings-summary {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.ccd-settings-notice {
+  margin: 12px 0;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-s-14);
+}
+
+.ccd-settings-section {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0 4px;
+}
+
+.ccd-settings-section + .ccd-settings-section {
+  margin-top: 14px;
+}
+
+.ccd-settings-title {
+  margin: 0;
+  padding: 0 2px 4px;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-s-strong-14);
+}
+
+.ccd-settings-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 48px;
+  padding: 8px 0;
+}
+
+.ccd-settings-row + .ccd-settings-row {
+  border-top: .5px solid var(--dsw-alias-border-l2);
+}
+
+.ccd-settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ccd-settings-name {
+  font: var(--dsw-font-s-14);
+}
+
+.ccd-settings-hint,
+.ccd-settings-note {
+  color: var(--dsw-alias-label-caption);
+  font: var(--dsw-font-xxs-12);
+}
+
+/* The caption under a group of rows (today: the two colour rows). Rows carry
+   their own 8px padding, so the note only needs to close the group. */
+.ccd-settings-note {
+  margin: 0;
+  padding: 0 2px 6px;
+}
+
+/* An unregistered DSH build leaves the native interface in place while every
+   switch still reads "on"; the page says so in the host's warning colour. */
+.ccd-settings-warning {
+  color: var(--dsw-alias-state-warn-label);
+  padding: 0 2px 10px;
+}
+
+.ccd-settings-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Segmented theme control: a recessed track with the chosen segment raised.
+   The reference measures 92x32 with 16px glyphs and a 1px inner card; the track
+   and the raised card come from the plugin palette when it is active (both
+   schemes define the relationship) and from the host palette otherwise. */
+.ccd-settings-segmented {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px;
+  border-radius: 9px;
+  background: var(--ccd-track, var(--dsw-alias-interactive-bg-hover));
+}
+
+.ccd-settings-segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.ccd-settings-segment:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.ccd-settings-segment[aria-checked='true'] {
+  border-color: var(--ccd-border-soft, var(--dsw-alias-border-l2));
+  background: var(--ccd-card, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-shadow-lv1);
+}
+
+/* Switch: the host's own dimensions and tokens (36×20 capsule, 16px thumb). */
+.ccd-settings-switch {
+  position: relative;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  padding: 2px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l3);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.ccd-settings-switch[aria-checked='true'] {
+  background: var(--dsw-static-blue-450);
+}
+
+.ccd-settings-thumb {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--dsw-alias-switch-thumb);
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.ccd-settings-switch[aria-checked='true'] .ccd-settings-thumb {
+  background: var(--dsw-alias-label-primary-foreground);
+  transform: translateX(16px);
+}
+
+.ccd-settings-text {
+  width: 220px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: inherit;
+  font: inherit;
+}
+
+.ccd-settings-colour {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--ccd-border-soft, var(--dsw-alias-border-l2));
+  border-radius: 999px;
+  corner-shape: round;
+  background: transparent;
+  color: var(--ccd-text, var(--dsw-alias-label-primary));
+}
+
+.ccd-settings-colour:focus-within {
+  outline: 2px solid var(--ccd-accent, var(--dsw-alias-brand-primary));
+  outline-offset: 1px;
+}
+
+.ccd-settings-colour[data-invalid='true'] {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.ccd-settings-colour-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  corner-shape: round;
+  background: none;
+  cursor: pointer;
+}
+
+.ccd-settings-colour-swatch > span {
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--ccd-border-soft, var(--dsw-alias-border-l2));
+  border-radius: 50%;
+  corner-shape: round;
+}
+
+.ccd-settings-colour-text {
+  width: 76px;
+  min-width: 0;
+  padding: 0 0 0 5px;
+  border: 0;
+  outline: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  line-height: 26px;
+}
+
+.ccd-settings-colour-text::placeholder {
+  color: inherit;
+  opacity: 1;
+}
+
+.ccd-settings-colour-menu {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid var(--ccd-border-soft, var(--dsw-alias-border-l2));
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--ccd-card, var(--dsw-alias-bg-layer-1));
+  box-shadow: var(--ccd-view-menu-shadow, var(--dsw-elevation-prominent));
+}
+
+.ccd-settings-colour-plane {
+  position: relative;
+  height: 174px;
+  border-radius: 8px 8px 0 0;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.ccd-settings-colour-cursor {
+  position: absolute;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  border: 2px solid white;
+  border-radius: 50%;
+  corner-shape: round;
+  box-shadow: var(--dsw-shadow-lv1);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.ccd-settings-colour-hue {
+  position: relative;
+  height: 32px;
+  border-radius: 0 0 8px 8px;
+  touch-action: none;
+}
+
+.ccd-settings-colour-hue > input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.ccd-settings-colour-hue > .ccd-settings-colour-cursor {
+  top: 50%;
+}
+
+.ccd-settings-colour-plane:focus-visible,
+.ccd-settings-colour-hue:has(input:focus-visible) {
+  outline: 2px solid var(--ccd-accent, var(--dsw-alias-brand-primary));
+  outline-offset: 2px;
+}
+
+.ccd-settings-text[aria-invalid='true'] {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.ccd-settings-text:focus-visible,
+.ccd-settings-select:focus-visible,
+.ccd-settings-switch:focus-visible,
+.ccd-settings-segment:focus-visible,
+.ccd-settings-button:focus-visible,
+.ccd-settings-button-quiet:focus-visible,
+.ccd-settings-menu-search:focus-visible,
+.ccd-settings-menu-item:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+/* Reference buttons use an 8px logical radius, independent of host tokens. */
+.ccd-settings-button-quiet {
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xs-13);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ccd-settings-button-quiet:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Select box: one bordered box with the chevron inside it. */
+.ccd-settings-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 260px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ccd-settings-select:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.ccd-settings-select[data-empty='true'] .ccd-settings-select-value {
+  color: var(--dsw-alias-label-caption);
+}
+
+.ccd-settings-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccd-settings-select > svg {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Installed-family menu, anchored to its select box. */
+.ccd-settings-menu {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-s-14);
+  box-shadow: var(--ccd-view-menu-shadow, var(--dsw-elevation-prominent));
+}
+
+.ccd-settings-menu-search {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: .5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: inherit;
+  font: inherit;
+}
+
+.ccd-settings-menu-count,
+.ccd-settings-menu-empty {
+  margin: 0;
+  padding: 0 6px;
+  color: var(--dsw-alias-label-caption);
+  font: var(--dsw-font-xxs-12);
+}
+
+/* The list keeps the window's own scrollbar: `theme/scrollbars.css` lists this
+   scroller, so the host's painted 5px bar is what appears here. (`scrollbar-
+   width: thin` used to stand in its place; the standard property suppresses the
+   host's painting, which is the whole thing that sheet exists to undo.) */
+.ccd-settings-menu-list {
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.ccd-settings-menu-item {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-s-14);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ccd-settings-menu-item[aria-selected='true'],
+.ccd-settings-menu-item[data-active='true'],
+.ccd-settings-menu-item:hover,
+.ccd-settings-menu-item:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.ccd-settings-menu-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The check closes the row and carries the switch's blue. */
+.ccd-settings-menu-check {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--dsw-static-blue-450);
+}
+
+.ccd-settings-choice-menu {
+  display: block;
+  max-height: min(320px, calc(100vh - 24px));
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+/* Font-menu reference at @2x: 28px rows, 6px outer / 12px inner
+   horizontal insets, a 36px search band and a softly frosted 14px shell. */
+.ccd-settings-font-menu {
+  --ccd-font-menu-surface: var(--ccd-card, var(--dsw-alias-bg-layer-2));
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--dsw-alias-border-l2) 70%, transparent);
+  background: color-mix(in srgb, var(--ccd-font-menu-surface) 96%, transparent);
+  box-shadow: var(--ccd-font-menu-shadow, var(--dsw-elevation-prominent));
+  backdrop-filter: blur(20px) saturate(1.2);
+}
+
+.ccd-settings-font-search {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 4px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 55%, transparent);
+}
+
+.ccd-settings-font-menu .ccd-settings-menu-search {
+  display: block;
+  height: 27px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  appearance: none;
+}
+
+.ccd-settings-font-menu .ccd-settings-menu-search:focus,
+.ccd-settings-font-menu .ccd-settings-menu-search:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Keep the result count available to assistive technology without inserting
+   a second band between the reference's search divider and its first row. */
+.ccd-settings-font-menu .ccd-settings-menu-count {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.ccd-settings-font-scroll {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ccd-settings-font-menu .ccd-settings-menu-list {
+  box-sizing: border-box;
+  min-height: 0;
+  max-height: none;
+  padding: 4px 6px 6px;
+  scroll-padding-block: 4px;
+}
+
+.ccd-settings-font-menu .ccd-settings-menu-item {
+  min-height: 28px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  line-height: 20px;
+}
+
+.ccd-settings-font-menu .ccd-settings-menu-item:is([aria-selected='true'], [data-active='true'], :hover, :focus-visible) {
+  background: var(--ccd-font-menu-selected, var(--dsw-alias-interactive-bg-hover));
+}
+
+.ccd-settings-font-menu .ccd-settings-menu-check {
+  color: var(--ccd-font-menu-check, var(--dsw-static-blue-450));
+}
+
+.ccd-settings-font-menu .ccd-settings-menu-empty {
+  padding: 10px 18px;
+}
+
+.ccd-settings-status {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+}
+
+/* Silent while nothing is being written. */
+.ccd-settings-status:empty {
+  display: none;
+}
+
+.ccd-settings-button {
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+  font: var(--dsw-font-xs-strong-13);
+  cursor: pointer;
+}
+
+.ccd-settings-button-quiet {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: none;
+  color: var(--dsw-alias-label-primary);
+}
+
+.ccd-settings-button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+html[data-dsh-ccd-style="true"] [data-shortcut-modal="settings"] .Dws9Sa_actions button {
+  border-radius: 8px;
+}
+
+@media (max-width: 620px) {
+  .ccd-settings-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ccd-settings-control {
+    justify-content: flex-start;
+  }
+
+  .ccd-settings-text {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+/* Hand-drawn Claude-like burst. Preserve the host SVG's layout and React ownership. */
+[data-ccd-settings-icon] > svg:first-child {
+  display: none;
+}
+
+[data-ccd-settings-icon]::before {
+  content: '';
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m12 12 1-10m-1 10 6-8m-6 8 10-4m-10 4 10 2m-10-2 7 7m-7-7 2 10m-2-10-4 10m4-10-8 6m8-6L2 11m10 1L4 5m8 7L8 2' fill='none' stroke='black' stroke-width='2.3' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* The Theme panel (`ThemePanel.tsx`): the same form as a page of the centre
+   column, under the 26px heading and the 54px/40px inset the Customize page
+   draws. Like the form, it reads `--ccd-*` with a host fallback, so the page
+   that switches the interface back on stays readable while it is off. */
+/* The `main` outlet is `display: contents`, so the page is a flex item of the
+   host's column-flex centre column: it takes the remaining height and scrolls. */
+.ccd-theme-panel {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--ccd-canvas, var(--dsw-alias-bg-base));
+  color: var(--ccd-text, var(--dsw-alias-label-primary));
+}
+
+.ccd-theme-panel-content {
+  box-sizing: border-box;
+  padding: 54px 40px 40px;
+}
+
+.ccd-theme-panel-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 36px;
+  letter-spacing: -.6px;
+}
+
+.ccd-theme-panel-glyph {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.ccd-theme-panel-glyph > svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* The form inside the Theme panel follows the reference settings page rather
+   than the host dialog: 15px section headings 40px apart, 12px row padding
+   over 1px hairlines, 14px descriptions, and 28px controls — a borderless
+   value-and-chevron select, a filled quiet button, an 80x28 segmented track.
+   Two-class selectors win over the dialog rules above; the 620px breakpoint's
+   column template is left alone so it still collapses the rows. */
+.ccd-theme-panel .ccd-settings-page {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  gap: 40px;
+  margin-top: 28px;
+}
+
+.ccd-theme-panel .ccd-settings-section {
+  padding: 0;
+}
+
+.ccd-theme-panel .ccd-settings-section + .ccd-settings-section {
+  margin-top: 0;
+}
+
+.ccd-theme-panel .ccd-settings-title {
+  margin-bottom: 4px;
+  padding: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.ccd-theme-panel .ccd-settings-row {
+  min-height: 0;
+  padding: 12px 0;
+  column-gap: 24px;
+}
+
+.ccd-theme-panel .ccd-settings-row + .ccd-settings-row {
+  border-top: 1px solid var(--ccd-border-soft, var(--dsw-alias-border-l2));
+}
+
+.ccd-theme-panel .ccd-settings-label {
+  gap: 4px;
+}
+
+.ccd-theme-panel :is(.ccd-settings-name, .ccd-settings-hint, .ccd-settings-note) {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.ccd-theme-panel :is(.ccd-settings-hint, .ccd-settings-note) {
+  color: var(--ccd-text-secondary, var(--dsw-alias-label-secondary));
+}
+
+.ccd-theme-panel .ccd-settings-note {
+  padding: 12px 0 0;
+}
+
+.ccd-theme-panel .ccd-settings-warning {
+  padding: 0;
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.ccd-theme-panel .ccd-settings-select {
+  width: auto;
+  max-width: 260px;
+  height: 28px;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--ccd-text, var(--dsw-alias-label-primary));
+  font-weight: 600;
+}
+
+.ccd-theme-panel .ccd-settings-select:hover,
+.ccd-theme-panel .ccd-settings-select[aria-expanded='true'] {
+  background: var(--ccd-hover, var(--dsw-alias-interactive-bg-hover));
+}
+
+.ccd-theme-panel .ccd-settings-select > svg {
+  color: var(--ccd-text-secondary, var(--dsw-alias-label-caption));
+}
+
+.ccd-theme-panel .ccd-settings-segmented {
+  border-radius: 8px;
+}
+
+.ccd-theme-panel .ccd-settings-segment {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.ccd-theme-panel .ccd-settings-button-quiet {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  background: var(--ccd-track, var(--dsw-alias-interactive-bg-hover));
+  color: var(--ccd-text, var(--dsw-alias-label-primary));
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.ccd-theme-panel .ccd-settings-button-quiet:hover {
+  background: var(--ccd-hover-strong, var(--dsw-alias-interactive-bg-hover));
+}
+
+.ccd-theme-panel .ccd-settings-text {
+  height: 28px;
+  border-color: var(--ccd-border-soft, var(--dsw-alias-border-l2));
+  border-radius: 8px;
+  background: var(--ccd-card, var(--dsw-alias-bg-layer-1));
+}
+
+/* Reset appears only once a typeface has been changed. */
+.ccd-theme-panel .ccd-settings-row[data-ccd-customized='false'] .ccd-settings-button-quiet {
+  display: none;
+}

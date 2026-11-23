@@ -1,0 +1,561 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
+import { findChrome, withPage } from '../scripts/lib/headless-chrome.mjs';
+const root = fileURLToPath(new URL('../', import.meta.url));
+let chrome;
+try { chrome = findChrome(); } catch { /* Local Chrome enables browser coverage. */ }
+
+const NATIVE = `
+._6Qf49G_frame{position:absolute;inset:0}._6Qf49G_sidebarCol{position:absolute;left:0;top:0;bottom:0;width:280px}
+*{box-sizing:border-box}body{margin:0;background:#eaeae8;font:13px system-ui}
+.panel{position:absolute;right:0;top:0;bottom:0;width:600px;display:flex;flex-direction:column;pointer-events:none;padding:8px}
+.surface{flex:1;display:flex;min-height:0}
+.layout{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0}
+.cell[data-dockkit-host=float]{z-index:60}.cell{display:flex;min-width:0;min-height:0;grid-column:1;grid-row:1}
+[data-dockkit-content]{display:flex;flex-direction:column;min-width:0;min-height:0;flex:1;pointer-events:auto}
+[data-dockkit-float]{position:fixed;overflow:hidden;background:#fff;z-index:60}
+.header{flex:none}.body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto}
+[data-dockkit-strip],[data-dockkit-float-grip]{display:flex;align-items:center;height:32px;flex:none;gap:4px}
+[data-dockkit-float-title]{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+[data-dockkit-tab-title]{display:flex;align-items:center;gap:5px;min-width:0}
+button{border:0;background:none;flex:none;cursor:pointer}.fill{flex:1;min-width:0}
+[data-files-root]{height:100%;min-height:0;display:flex;flex-direction:column}
+.filesHeader{display:flex;align-items:center;flex:none}
+[data-files-body]{flex:1;min-height:0;overflow:auto}
+[data-files-body] ul{list-style:none;padding:0;margin:0}
+[data-files-entry]>button{display:flex;align-items:center;width:100%}
+.browserRoot{height:100%;min-height:0;display:flex;flex-direction:column}.browserRoot>[aria-busy]{flex:1;min-height:0;position:relative}.browserRoot form{height:38px;display:flex;flex:none}
+[hidden]{display:none!important}
+`;
+
+const fixture = session => `<div data-sidebar-right-session="${session}"><div class="panel" data-sidebar-right-panel="push" data-sidebar-right-open><div class="surface" data-dockkit-surface><div class="layout">
+<div class="cell"><section data-dockkit-content="${session}-guide" data-dockkit-pane="dock"><div class="header"><div data-dockkit-strip><span data-dockkit-tab>Guide</span><span class="fill"></span><div data-dockkit-strip-chrome><button data-sidebar-right-mode="fullscreen" aria-label="全屏">full</button><button data-sidebar-right-toggle aria-label="收起侧边栏">hide</button></div></div></div><div class="body">Guide body</div></section></div>
+</div></div></div></div>`;
+const wait = page => page.evaluate('new Promise(resolve => setTimeout(resolve, 60))');
+const boxes = page => page.evaluate(`Object.fromEntries([...document.querySelectorAll('[data-ccd-pane]:not([data-ccd-pane-inactive])')].map(node => {
+ const b = node.getBoundingClientRect(); return [node.getAttribute('data-dockkit-content'), {x:b.x,y:b.y,width:b.width,height:b.height}]; }))`);
+const click = (page, selector) => page.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+const drag = (page, key, delta, { up = true, pointer = 7 } = {}) => page.evaluate(`(() => {
+ const node = document.querySelector('[data-ccd-pane-seam="${key}"]'); const b = node.getBoundingClientRect();
+ const x=b.x+b.width/2,y=b.y+b.height/2,row=node.getAttribute('data-ccd-pane-axis')==='row';
+ const send=(type,target,d,pointer=${pointer})=>target.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:pointer,button:0,clientX:x+(row?0:d),clientY:y+(row?d:0)}));
+ send('pointerdown',node,0);send('pointermove',window,${delta});${up ? "send('pointerup',window," + delta + ');' : ''}
+})()`);
+
+async function bundleAndSheet() {
+  const sheet = (await Promise.all(['src/client/theme/tokens.css', 'src/client/theme/base.css'].map(path => readFile(join(root,path),'utf8')))).join('\n');
+  const bundle = await build({ stdin: { resolveDir: root, contents: `
+import { mountRightPanel } from './src/client/features/right-panel/mount.ts';
+import { CleanupScope } from './src/client/core/cleanup.ts';
+import { createDomPort } from './src/client/compat/dom.ts';
+import { resolveConfig } from './src/shared/config.ts';
+window.errors=[];window.tabs=[];window.listeners=[];window.calls={float:[],dock:[],open:[],toggle:0};
+window.session=()=>[...document.querySelectorAll('[data-sidebar-right-session]')].find(node=>!node.hidden)?.getAttribute('data-sidebar-right-session');
+window.notify=()=>window.listeners.forEach(listener=>listener());
+window.bodyFor=(tab)=>tab.kind==='files' ? '<div data-files-root="/repo"><div class="filesHeader"><span data-files-path>/repo</span><button data-files-reload aria-label="重新加载">reload</button><div data-slot="sidebar.right.tab.files.actions" style="display:contents"><button aria-label="Open folder in app">editor</button></div></div><div data-files-body><ul><li data-files-entry="file" data-files-path="/repo/README.md"><button><svg></svg><span>README.md</span></button></li><li data-files-entry="file" data-files-path="/repo/app.ts"><button><svg></svg><span>app.ts</span></button></li></ul></div></div>' : tab.kind==='browser' ? '<div class="browserRoot"><form><button type="button" disabled>back</button><button type="button" disabled>forward</button><button type="button" disabled>reload</button><div><input aria-label="Address"><button type="submit">Go</button></div></form><div aria-busy="false"><div>Enter URL</div></div></div>' : '<div data-test-content>'+tab.tabId+' content</div>';
+window.add=(id,kind,session=window.session(),contentId)=>{
+ const record={sessionId:session,tabId:id,kind,...(contentId?{contentId}:{})};window.tabs.push(record);
+ const cell=document.createElement('div');cell.className='cell';cell.innerHTML='<section data-dockkit-content="'+id+'"><div class="body">'+window.bodyFor(record)+'</div></section>';
+ document.querySelector('[data-sidebar-right-session="'+session+'"] .layout').append(cell);window.notify();
+};
+window.closeTab=id=>{
+ window.tabs=window.tabs.filter(tab=>tab.tabId!==id);const node=document.querySelector('[data-dockkit-content="'+id+'"]');node?.parentElement.remove();window.notify();
+};
+const sidebar={close:id=>window.closeTab(id),openTabs:{getSnapshot:()=>window.tabs,subscribe:fn=>{window.listeners.push(fn);return()=>{window.listeners=window.listeners.filter(item=>item!==fn)}}},
+ float:(id,rect)=>{
+  window.calls.float.push({id,rect});const node=document.querySelector('[data-dockkit-content="'+id+'"]');
+  if(!node||node.hasAttribute('data-dockkit-float'))return;
+  node.parentElement.setAttribute('data-dockkit-host','float');node.setAttribute('data-dockkit-float','float-'+id);
+  node.style.cssText='left:'+rect.x+'px;top:'+rect.y+'px;width:'+rect.width+'px;height:'+rect.height+'px';
+  const header=document.createElement('div');header.className='header';header.innerHTML='<header data-dockkit-float-grip><div data-dockkit-float-title><span data-dockkit-tab-title>'+id+'</span></div><span class="fill"></span><button data-dockkit-float-dock>dock</button><button data-dockkit-float-close aria-label="关闭"><svg viewBox="0 0 16 16"><path d="M4 4l8 8m0-8-8 8"/></svg></button></header>';
+  node.prepend(header);node.querySelector('[data-dockkit-float-close]').onclick=()=>window.closeTab(id);
+  window.notify();
+ },dock:id=>window.calls.dock.push(id),focus:id=>{window.focused=id;document.querySelectorAll('[data-dockkit-float-active]').forEach(node=>node.removeAttribute('data-dockkit-float-active'));document.querySelector('[data-dockkit-content="'+id+'"]')?.setAttribute('data-dockkit-float-active','')},
+ openTab:kind=>{window.calls.open.push(kind);window.add(kind==='files'?'auto-files':'auto-'+kind+'-'+window.calls.open.length,kind)},
+ toggleExpanded:()=>{window.calls.toggle++;const node=document.querySelector('[data-sidebar-right-session="'+window.session()+'"] .panel');node.toggleAttribute('data-sidebar-right-open')}
+};
+document.addEventListener('click',event=>{if(event.target.closest('[data-sidebar-right-toggle]'))sidebar.toggleExpanded()});
+const ctx={inject:(_names,fn)=>({dispose:fn({sidebarRight:sidebar})})};
+window.mount=(features={})=>{
+ const scope=new CleanupScope(error=>window.errors.push(String(error)));
+ mountRightPanel(ctx,{config:resolveConfig({features}),dom:createDomPort(document),
+   logger:{error:(message,error)=>window.errors.push(message+String(error))}},scope);
+ window.filesRelease=()=>{};
+ window.release=()=>scope.dispose();
+};
+` }, bundle:true,write:false,format:'iife',loader:{'.css':'text'} });
+  return { sheet, script:bundle.outputFiles[0].text };
+}
+
+async function withFixture(callback, seed) {
+  const {sheet,script}=await bundleAndSheet();
+  const profile=await mkdtemp(join(tmpdir(),'ccd-right-panes-'));
+  try {
+    await withPage({url:'about:blank',width:1200,height:830,scale:1,profile},async page=>{
+      await page.evaluate(`document.documentElement.dataset.dshCcdStyle='true';document.documentElement.lang='zh';document.body.innerHTML=${JSON.stringify('<main class="_6Qf49G_frame"><aside class="_6Qf49G_sidebarCol"></aside>'+fixture('s1')+'</main>')};const style=document.createElement('style');style.textContent=${JSON.stringify(NATIVE+'\n'+sheet)};document.head.append(style);`);
+      await page.evaluate(script);
+      /* Tabs a fixture holds before the mount are a *restored* layout: the host
+         draws them from its own store, the reader opened nothing. */
+      if (seed !== undefined) await page.evaluate(seed);
+      await page.evaluate('window.mount()');await wait(page);
+      await callback(page);
+      assert.deepEqual(await page.evaluate('window.errors'),[]);
+      await page.evaluate('window.release();window.filesRelease()');
+    });
+  } finally { await rm(profile,{recursive:true,force:true,maxRetries:6,retryDelay:150}); }
+}
+const options={skip:chrome?false:'Chrome unavailable',timeout:60000};
+
+test('recording: independent columns, close-in-place, zoom, collapse and teardown',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('terminal','terminal')");await wait(page);
+  let b=await boxes(page);
+  assert.equal(b.terminal.y,8,'no extra global header row');
+  assert.equal(b.terminal.height,814,'the single card fills the available height');
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-dockkit-strip]')).display"),'none');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-pane-popout]')!==null"),false);
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-pane-seam]')??document.body).pointerEvents"),'auto');
+  await page.evaluate("window.add('diff','diff')");await wait(page);
+  b=await boxes(page);assert.equal(b.terminal.x,b.diff.x);assert.equal(b.terminal.height,b.diff.height);
+  await drag(page,'row:0:0',80);await wait(page);
+  const draggedTwo=await boxes(page);assert.equal(Math.round(draggedTwo.terminal.height-b.terminal.height),80);
+  await page.evaluate("window.add('browser','browser');window.add('terminal2','diff')");await wait(page);
+  b=await boxes(page);
+  assert.equal(b.terminal.x,b.diff.x);assert.equal(b.browser.x,b.terminal2.x);
+  assert.ok(b.browser.x>b.terminal.x);assert.equal(b.browser.y,8);
+  assert.ok(b.terminal.height>b.diff.height,'existing left row proportions survived opening right column');
+  assert.equal(await page.evaluate("document.querySelectorAll('[data-ccd-pane-seam]').length"),3);
+  const screenshot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile('/tmp/ccd-sidebar-four.png',Buffer.from(screenshot.data,'base64'));
+  const hit=await page.evaluate(`(()=>{const n=document.querySelector('[data-ccd-pane-seam="row:1:0"]'),b=n.getBoundingClientRect();return document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)===n})()`);
+  assert.equal(hit,true,'seams receive real pointer hits through the host pointer-events:none panel');
+  await drag(page,'row:0:0',55);await wait(page);
+  let after=await boxes(page);assert.deepEqual(after.browser,b.browser);assert.deepEqual(after.terminal2,b.terminal2);
+  const left=after.terminal;
+  await drag(page,'row:1:0',70);await wait(page);after=await boxes(page);assert.deepEqual(after.terminal,left);
+  const right=after.browser;
+  await page.evaluate("window.closeTab('terminal')");await wait(page);after=await boxes(page);
+  assert.equal(after.diff.height,814);assert.deepEqual(after.browser,right,'closing only grows same-column neighbour');
+  await click(page,'[data-dockkit-content="browser"] [data-ccd-pane-zoom]');await wait(page);
+  b=await boxes(page);assert.deepEqual(Object.keys(b),['browser']);assert.equal(b.browser.x,288);assert.equal(b.browser.width,904);assert.equal(b.browser.height,814);
+  await page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))");await wait(page);
+  assert.equal(Object.keys(await boxes(page)).length,3);
+  await click(page,'[data-ccd-pane-more]');await wait(page);
+  await page.evaluate("[...document.querySelectorAll('[data-ccd-pane-menu] button')].find(node=>node.textContent==='收起侧边栏').click()");await wait(page);
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-pane]')).display"),'none');
+  await page.evaluate("document.querySelector('.panel').setAttribute('data-sidebar-right-open','')");await wait(page);
+  await page.evaluate("window.release();window.filesRelease()");
+  assert.equal(await page.evaluate("document.querySelectorAll('[data-ccd-pane],[data-ccd-pane-seam],[data-ccd-pane-controls]').length"),0);
+  assert.deepEqual((await page.evaluate('window.calls.dock')).sort(),['float-browser','float-diff','float-terminal2']);
+}));
+
+test('file previews stay inside Files, tree collapse preserves preview, tabs can switch',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('files','files')");await wait(page);
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-files-landing]')).display"),'flex');
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-slot=\"sidebar.right.tab.files.actions\"]')).display"),'none','inline display:contents does not steal filter width');
+  const parent=await page.evaluate("document.querySelector('[data-files-root]').parentElement.getAttribute('class')");
+  await page.evaluate("window.add('readme','text','s1','dsh-resource://file/session/s1/repo/README.md')");await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-surface]').getAttribute('data-ccd-panes')"),'1');
+  assert.equal(await page.evaluate("document.querySelector('[data-files-root]').parentElement.getAttribute('class')"),parent,'the tree stays in the host body');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-pane-preview]').getAttribute('data-dockkit-content')"),'readme');
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-files-landing]')).display"),'none');
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-float-title][data-ccd-files-tab]')!==null"),true,'floating Files receives the list mark');
+  let b=await boxes(page);const preview=b.readme;
+  const width=b.files.width;await drag(page,'files:tree',45);await wait(page);b=await boxes(page);
+  assert.equal(Math.round(b.files.width-width),45);assert.deepEqual(b.readme,preview);
+  const originalWidth=b.files.width;
+  await click(page,'[data-ccd-pane-preview] [data-ccd-files-switch]');await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-files-root]').getAttribute('data-ccd-files-tree')"),'hidden');
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-files-body]')).display"),'none');
+  assert.notEqual(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-pane-preview]')).display"),'none');
+  await click(page,'[data-ccd-pane-preview] [data-ccd-files-switch]');await wait(page);assert.equal((await boxes(page)).files.width,originalWidth);
+  await page.evaluate("window.add('app','text','s1','dsh-resource://file/session/s1/repo/app.ts')");await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=readme]').hasAttribute('data-ccd-pane-inactive')"),true);
+  await click(page,'[data-dockkit-content=app] [data-ccd-pane-more]');await wait(page);
+  await page.evaluate("[...document.querySelectorAll('[data-ccd-pane-menu] button')].find(node=>node.textContent==='README.md').click()");await wait(page);
+  assert.equal(await page.evaluate('window.focused'),'readme');assert.ok((await boxes(page)).readme);assert.equal((await boxes(page)).app,undefined);
+  await page.evaluate("document.querySelector('[data-dockkit-content=readme]').removeAttribute('data-dockkit-float-active');document.querySelector('[data-dockkit-content=app]').setAttribute('data-dockkit-float-active','')");await wait(page);
+  assert.ok((await boxes(page)).app,'host focus of an existing file switches the preview without new membership');
+  const treeHit=await page.evaluate("(()=>{const n=document.querySelector('[data-files-entry] button'),b=n.getBoundingClientRect();return n.contains(document.elementFromPoint(b.x+60,b.y+b.height/2))})()");
+  assert.equal(treeHit,true,'the tree remains above the preview cell stacking context');
+  await page.evaluate("window.closeTab('readme');window.closeTab('app')");await wait(page);
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-files-landing]')).display"),'flex');
+  await page.evaluate("window.closeTab('files')");await wait(page);
+  assert.equal(await page.evaluate('window.calls.toggle'),1,'closing the last card collapses the right panel');
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-surface]').hasAttribute('data-ccd-panes')"),false);
+}));
+
+test('file header tabs switch, show paths and close independently while retaining the tree',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('files','files');window.add('readme','text','s1','dsh-resource://file/session/s1/repo/README.md');window.add('nested','text','s1','dsh-resource://file/session/s1/repo/docs/README.md');window.add('app','text','s1','dsh-resource://file/session/s1/repo/app.ts')");await wait(page);
+  const tabs = '[data-ccd-pane-preview] [data-ccd-file-tabs]';
+  assert.deepEqual(await page.evaluate(`[...document.querySelectorAll('${tabs} [role="tab"]')].map(tab=>[tab.textContent,tab.title,tab.getAttribute('aria-selected')])`),[
+    ['README.md','README.md','false'],['README.md','docs/README.md','false'],['app.ts','app.ts','true'],
+  ]);
+  await click(page,`${tabs} [role="tab"][title="README.md"]`);await wait(page);
+  assert.equal(await page.evaluate('window.focused'),'readme');
+  await page.evaluate(`document.querySelector('${tabs} [role="tab"][aria-selected="true"]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))`);await wait(page);
+  assert.equal(await page.evaluate('window.focused'),'nested');
+  await click(page,`${tabs} [data-ccd-file-tab]:first-child [data-ccd-file-close]`);await wait(page);
+  assert.ok((await boxes(page)).nested,'closing an inactive file preserves the current preview');
+  await click(page,`${tabs} [data-ccd-file-tab][data-selected] [data-ccd-file-close]`);await wait(page);
+  assert.ok((await boxes(page)).app,'closing the active file selects its neighbour');
+  assert.equal(await page.evaluate(`document.querySelectorAll('${tabs} [role="tab"]').length`),1,'a single file still has a closable tab');
+  await click(page,`${tabs} [data-ccd-file-close]`);await wait(page);
+  assert.deepEqual(await page.evaluate('window.tabs.map(tab=>tab.tabId)'),['files']);
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-files-landing]')).display"),'flex');
+  assert.equal(await page.evaluate('window.calls.toggle'),0,'closing the last file keeps the Files card open');
+}));
+
+test('closing the Files card removes all previews and the tree, preserving other panes',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('terminal','terminal');window.add('files','files');window.add('readme','text','s1','dsh-resource://file/session/s1/repo/README.md');window.add('app','text','s1','dsh-resource://file/session/s1/repo/app.ts')");await wait(page);
+  await click(page,'[data-ccd-pane-preview] [data-dockkit-float-close]');await wait(page);
+  assert.deepEqual(await page.evaluate('window.tabs.map(tab=>tab.tabId)'),['terminal']);
+  assert.deepEqual(Object.keys(await boxes(page)),['terminal']);
+  assert.equal(await page.evaluate('window.calls.toggle'),0,'another pane keeps the panel open');
+  await page.evaluate("window.add('files2','files')");await wait(page);
+  await click(page,'[data-dockkit-content="files2"] [data-dockkit-float-close]');await wait(page);
+  assert.deepEqual(await page.evaluate('window.tabs.map(tab=>tab.tabId)'),['terminal'],'a Files card without previews also closes');
+}));
+
+test('closing the only Files card removes all files in the click turn without selecting survivors',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('files','files');window.add('readme','text','s1','dsh-resource://file/session/s1/repo/README.md');window.add('app','text','s1','dsh-resource://file/session/s1/repo/app.ts')");await wait(page);
+  const result = await page.evaluate(`(()=>{
+    const focused=window.focused;
+    document.querySelector('[data-ccd-pane-preview] [data-dockkit-float-close]').click();
+    return {tabs:window.tabs.map(tab=>tab.tabId),sameFocus:window.focused===focused};
+  })()`);
+  assert.deepEqual(result,{tabs:[],sameFocus:true},'the click completes every close without intermediate file selection');
+  await wait(page);
+  assert.equal(await page.evaluate('window.calls.toggle'),1,'the empty sidebar collapses once');
+}));
+
+test('session switch and panel replacement keep independent proportions; dragging aborts safely',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('a','terminal');window.add('b','browser')");await wait(page);
+  await drag(page,'row:0:0',105);await wait(page);const s1=await boxes(page);
+  await page.evaluate(`document.querySelector('[data-sidebar-right-session=s1]').hidden=true;document.body.insertAdjacentHTML('beforeend',${JSON.stringify(fixture('s2'))});window.add('c','terminal','s2');window.add('d','browser','s2');`);await wait(page);
+  let b=await boxes(page);assert.equal(b.c.height,b.d.height,'new session starts with its own ratios');
+  await drag(page,'row:0:0',-60);await wait(page);
+  await page.evaluate("document.querySelector('[data-sidebar-right-session=s2]').hidden=true;document.querySelector('[data-sidebar-right-session=s1]').hidden=false");await wait(page);
+  b=await boxes(page);assert.deepEqual(b.a,s1.a);assert.deepEqual(b.b,s1.b);
+  // A host replacement occurs on the panel's parent, outside the watched surface.
+  await page.evaluate("const old=document.querySelector('[data-sidebar-right-session=s1] .panel');old.replaceWith(old.cloneNode(true))");await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-sidebar-right-session=s1] [data-ccd-pane-seam]')!==null"),true);
+  assert.equal(await page.evaluate("document.querySelector('[data-sidebar-right-session=s1] [data-dockkit-float-grip]').querySelectorAll('[data-ccd-pane-caption]').length"),1,'panel replacement cannot duplicate captions');
+  await drag(page,'row:0:0',20,{up:false});await wait(page);
+  await page.evaluate("window.closeTab('b')");await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-pane-dragging]')"),null);
+  await page.evaluate("window.dispatchEvent(new PointerEvent('pointermove',{pointerId:7,clientY:700}))");await wait(page);
+  assert.deepEqual(Object.keys(await boxes(page)),['a']);
+  assert.equal((await boxes(page)).a.height,814);
+}));
+
+test('keyboard seams, pointer identity, window blur, and width changes remain usable',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('a','terminal');window.add('b','browser')");await wait(page);
+  let before=await boxes(page);
+  await page.evaluate("document.querySelector('[data-ccd-pane-seam]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}))");await wait(page);
+  let after=await boxes(page);assert.equal(Math.round(after.a.height-before.a.height),24);
+  before=after;
+  await drag(page,'row:0:0',0,{up:false,pointer:7});
+  await page.evaluate("window.dispatchEvent(new PointerEvent('pointermove',{pointerId:8,clientY:780}));window.dispatchEvent(new PointerEvent('pointerup',{pointerId:8}))");await wait(page);
+  assert.deepEqual(await boxes(page),before);assert.equal(await page.evaluate("document.querySelector('[data-ccd-pane-dragging]')!==null"),true);
+  await page.evaluate("window.dispatchEvent(new Event('blur'))");await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-pane-dragging]')"),null);
+  await page.evaluate("document.querySelector('.panel').style.width='450px'");await wait(page);
+  after=await boxes(page);assert.equal(after.a.width,434);assert.equal(after.a.height,before.a.height);
+  await page.evaluate("document.querySelector('[data-ccd-pane-seam]').dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true,cancelable:true}))");await wait(page);
+  assert.ok((await boxes(page)).a.height>=96-0.01,'keyboard resizing respects minimum body space');
+}));
+
+test('a conversation file link opens Files once and joins its preview',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('doc','text','s1','dsh-resource://file/session/s1/repo/README.md')");await wait(page);
+  assert.deepEqual(await page.evaluate('window.calls.open'),['files']);
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-surface]').getAttribute('data-ccd-panes')"),'1');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-pane-preview]').getAttribute('data-dockkit-content')"),'doc');
+  const shot=await page.send('Page.captureScreenshot',{format:'png'});
+  await writeFile('/tmp/ccd-sidebar-files-preview.png',Buffer.from(shot.data,'base64'));
+}));
+
+test('a restored layout never auto-opens the Files tree; a preview the reader opens still pairs with it',options,async()=>withFixture(async page=>{
+  /* Seeded before the mount, so the plugin's first pass reads them as restored
+     records rather than as something the reader just opened. Asking for the
+     tree here is what used to race the host's own reconciliation and kill the
+     `rightbar.session` seat for the rest of the session. */
+  assert.deepEqual(await page.evaluate('window.calls.open'),[],'a restored layout opens nothing');
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=doc][data-dockkit-float]')!==null"),true,'the restored preview is drawn on its own card meanwhile');
+  await page.evaluate("window.add('app','text','s1','dsh-resource://file/session/s1/repo/app.ts')");await wait(page);
+  assert.deepEqual(await page.evaluate('window.calls.open'),['files'],'a freshly opened preview still gets the tree');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-pane-preview]').getAttribute('data-dockkit-content')"),'app');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-pane-tree]').getAttribute('data-dockkit-content')"),'auto-files');
+  /* And it stays asked: a later sync of the same tab set must not stack another. */
+  await page.evaluate("window.closeTab('app');window.add('app','text','s1','dsh-resource://file/session/s1/repo/app.ts')");await wait(page);
+  assert.deepEqual(await page.evaluate('window.calls.open'),['files'],'the tree is requested once per mount');
+}, "window.add('doc','text','s1','dsh-resource://file/session/s1/repo/README.md')"));
+
+
+test('reference chrome preserves button order and native browser navigation; page picking is omitted',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('t','terminal');window.add('f','files');window.add('w','browser')");await wait(page);
+  const readOrder=kind=>page.evaluate(`[...document.querySelector('[data-ccd-pane-kind="${kind}"] [data-ccd-pane-controls]').children].map(node=>[...node.attributes].find(a=>a.name.startsWith('data-ccd-'))?.name)`);
+  assert.deepEqual(await readOrder('terminal'),['data-ccd-pane-more','data-ccd-pane-zoom']);
+  assert.deepEqual(await readOrder('files'),['data-ccd-pane-search','data-ccd-pane-more','data-ccd-pane-zoom']);
+  assert.deepEqual(await readOrder('browser'),['data-ccd-pane-more','data-ccd-pane-zoom']);
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-pane-zoom]')).borderTopWidth"),'0px');
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-pane-zoom] svg')).width"),'16px');
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-browser-toolbar]')).display"),'flex','address form is visible in the header');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-wait]').textContent"),'等待服务器响应…');
+  await page.evaluate("const original=document.querySelector('[data-ccd-browser-toolbar]>button');original.disabled=false;original.onclick=()=>window.backSeen=true");await wait(page);
+  await click(page,'[data-ccd-browser-back]');assert.equal(await page.evaluate('window.backSeen'),true);
+  await page.evaluate("document.querySelector('[data-ccd-browser-toolbar] input').focus()");await wait(page);
+  assert.equal(await page.evaluate("document.activeElement===document.querySelector('[data-ccd-browser-toolbar] input')"),true);
+  await page.evaluate("document.querySelector('[data-dockkit-content=t] [data-dockkit-tab-title]').textContent='renamed'");await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=t] [data-ccd-pane-caption]').textContent"),'终端 renamed','native rename is reflected by the reference caption');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-pick]')"),null);
+  // Same geometry in dark mode and no invisible seams swallowing body input.
+  await page.evaluate("document.body.dataset.dsDarkTheme=''");await wait(page);
+  const screenshot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile('/tmp/ccd-sidebar-chrome-dark.png',Buffer.from(screenshot.data,'base64'));
+}));
+
+
+test('plain titles, Files header tree switch, full conversation expansion and terminal tabs',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('t','terminal');window.add('f','files');window.add('w','browser')");await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-pane-caption]').closest('[data-dockkit-float-title]')"),null);
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-dockkit-float-title]')).display"),'none');
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=t] [data-ccd-pane-caption]').querySelector('[role=tab]')"),null,'one terminal has plain text');
+  await page.evaluate("document.querySelector('[data-dockkit-content=t] [data-dockkit-float-title]').ondblclick=()=>window.renameSeen=true;document.querySelector('[data-dockkit-content=t] [data-ccd-pane-caption]>span').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))");
+  assert.equal(await page.evaluate('window.renameSeen??false'),false);
+  await click(page,'[data-dockkit-content=f] [data-ccd-files-switch]');await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-files-root]').getAttribute('data-ccd-files-tree')"),'hidden');
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=f] [data-ccd-files-switch]').getAttribute('aria-expanded')"),'false');
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=f] [data-ccd-pane-caption]').textContent"),'文件','the Files card is titled in the document’s language');
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=f] [data-ccd-files-switch]').getAttribute('aria-label')"),'展开文件树','and its tree control says what it does, in the same language');
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=f] [data-ccd-pane-search]').getAttribute('aria-label')"),'搜索文件');
+  assert.match(await page.evaluate("document.querySelector('[data-dockkit-content=t] [data-ccd-pane-caption]').textContent"),/^终端/,'a terminal’s title leads with the same language’s word');
+  await click(page,'[data-dockkit-content=f] [data-ccd-files-switch]');await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-files-root]').hasAttribute('data-ccd-files-tree')"),false);
+  await page.evaluate("document.querySelectorAll('[data-dockkit-float-grip]').forEach(node=>node.addEventListener('pointerdown',()=>window.headerDrags=(window.headerDrags??0)+1));document.querySelector('[data-ccd-terminal-add]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0}));document.querySelector('[data-dockkit-content=f] [data-ccd-files-switch]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0}));document.querySelector('[data-dockkit-content=t] [data-ccd-pane-caption]>span').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0}))");
+  assert.equal(await page.evaluate('window.headerDrags??0'),0,'real pointer presses cannot initiate host float dragging');
+  const initial=await boxes(page);
+  for (const id of ['f','t','w']) {
+    await click(page,'[data-dockkit-content='+id+'] [data-ccd-pane-zoom]');await wait(page);
+    const b=await boxes(page);assert.deepEqual(Object.keys(b),[id]);assert.deepEqual(b[id],{x:288,y:8,width:904,height:814});
+    await click(page,'[data-dockkit-content='+id+'] [data-ccd-pane-zoom]');await wait(page);
+    assert.deepEqual(await boxes(page),initial,'restore keeps all split ratios');
+  }
+  await page.evaluate("document.documentElement.setAttribute('data-windows-titlebar','');document.documentElement.style.setProperty('--dsh-windows-titlebar-height','40px')");
+  await click(page,'[data-dockkit-content=t] [data-ccd-pane-zoom]');await wait(page);
+  assert.deepEqual((await boxes(page)).t,{x:288,y:48,width:904,height:774},'Windows expansion leaves the native caption visible');
+  await click(page,'[data-dockkit-content=t] [data-ccd-pane-zoom]');await wait(page);
+  await page.evaluate("document.documentElement.removeAttribute('data-windows-titlebar')");
+  await click(page,'[data-dockkit-content=t] [data-ccd-pane-zoom]');await wait(page);
+  await click(page,'[data-dockkit-content=t] [data-ccd-terminal-add]');await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-surface]').getAttribute('data-ccd-panes')"),'3','a new terminal is a tab rather than another card');
+  assert.deepEqual(Object.keys(await boxes(page)),['auto-terminal-1'],'adding a tab retains expanded state');
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=auto-terminal-1] [role=tablist]').querySelectorAll('[role=tab]').length"),2);
+  await click(page,'[data-dockkit-content=auto-terminal-1] [role=tab]');await wait(page);
+  assert.deepEqual(Object.keys(await boxes(page)),['t']);
+  await page.evaluate("document.querySelector('[data-dockkit-content=t] [role=tab]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}))");await wait(page);
+  assert.deepEqual(Object.keys(await boxes(page)),['auto-terminal-1']);
+  await click(page,'[data-dockkit-content=auto-terminal-1] [data-ccd-terminal-add]');await wait(page);
+  const active=await boxes(page);assert.deepEqual(Object.keys(active),['auto-terminal-2']);
+  const shot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile('/tmp/ccd-sidebar-terminal-tabs.png',Buffer.from(shot.data,'base64'));
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=auto-terminal-2] [role=tablist]').querySelectorAll('[role=tab]').length"),3);
+  /* Three terminal cards, one group: only the card on show carries a tab list,
+     so the group's cost is its three tabs rather than three lists of three. */
+  assert.equal(await page.evaluate("document.querySelectorAll('[data-ccd-terminal-tabs]').length"),1,'only the visible card draws the tab list');
+  assert.deepEqual(await page.evaluate("['t','auto-terminal-1','auto-terminal-2'].map(id=>document.querySelector('[data-dockkit-content='+id+'] [role=tablist]')?.textContent)"),[null,null,'终端 1 repo终端 2 repo终端 3 repo'],'the hidden cards are named by the native title only');
+  await page.evaluate("[...document.querySelectorAll('[data-dockkit-content=auto-terminal-2] [data-ccd-terminal-close]')].at(-1).click()");await wait(page);
+  assert.deepEqual(Object.keys(await boxes(page)),['auto-terminal-1']);
+  await click(page,'[data-dockkit-content=auto-terminal-1] [data-dockkit-float-close]');await wait(page);
+  assert.deepEqual((await page.evaluate('window.tabs')).map(tab=>tab.kind),['files','browser'],'card close closes all terminal tabs');
+  assert.equal(await page.evaluate("document.querySelector('[data-sidebar-right-panel]').hasAttribute('data-ccd-pane-expanded')"),false);
+}));
+
+
+test('browser tabs share a card and preserve per-page state through select, add, close and cleanup',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('b1','browser');window.add('b2','browser')");await wait(page);
+  assert.deepEqual(Object.keys(await boxes(page)),['b2']);
+  const active = '[data-ccd-pane-kind="browser"]:not([data-ccd-pane-inactive])';
+  assert.equal(await page.evaluate(`document.querySelectorAll('${active} [role="tab"]').length`),2);
+  await page.evaluate("document.querySelector('[data-dockkit-content=b1] input').value='https://one.example';document.querySelector('[data-dockkit-content=b2] input').value='https://two.example'");
+  await click(page,`${active} [role="tab"]`);await wait(page);
+  assert.deepEqual(Object.keys(await boxes(page)),['b1']);
+  assert.equal(await page.evaluate(`document.querySelector('${active} input').value`),'https://one.example');
+  await page.evaluate(`document.querySelector('${active} [role="tab"]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))`);await wait(page);
+  assert.deepEqual(Object.keys(await boxes(page)),['b2']);
+  assert.equal(await page.evaluate(`document.querySelector('${active} input').value`),'https://two.example');
+  await click(page,`${active} [data-ccd-browser-tab][data-selected] [data-ccd-browser-close]`);await wait(page);
+  assert.deepEqual(Object.keys(await boxes(page)),['b1']);
+  await click(page,`${active} [data-ccd-browser-add]`);await wait(page);
+  assert.deepEqual(await page.evaluate('window.calls.open'),['browser']);
+  assert.equal(Object.keys(await boxes(page)).length,1);
+  assert.equal(await page.evaluate(`document.querySelectorAll('${active} [role="tab"]').length`),2);
+  await click(page,`${active} [data-dockkit-float-close]`);await wait(page);
+  assert.deepEqual(await page.evaluate('window.tabs'),[],'card close removes every browser tab');
+}));
+
+test('browser address occupies the second row; capture delegates to the guest and stops after removal',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('browser','browser')");await wait(page);
+  await click(page,'[data-ccd-pane-zoom]');await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-wait]').getAttribute('data-ccd-browser-wait')"),'idle');
+  assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-ccd-browser-wait-mark]')).display"),'none','idle browser is the reference blank canvas');
+  const field=await page.evaluate("(()=>{const button=document.querySelector('[data-ccd-browser-reload]'),b=button.getBoundingClientRect(),f=document.querySelector('[data-ccd-browser-toolbar]'),r=f.getBoundingClientRect(),s=document.querySelector('[data-ccd-browser-address-slot]').getBoundingClientRect(),t=document.querySelector('[data-ccd-browser-tabs]').getBoundingClientRect();return {fieldY:r.top+r.height/2,buttonY:b.top+b.height/2,left:r.left,buttonRight:b.right,width:r.width,slotWidth:s.width,tabBottom:t.bottom,top:r.top,parent:f.parentElement.className,popover:f.hasAttribute('popover')}})()");
+  assert.equal(field.fieldY,field.buttonY);
+  assert.ok(field.top>field.tabBottom,'address field is below the tabs');
+  assert.equal(field.left,field.buttonRight+4);assert.equal(field.width,field.slotWidth);assert.ok(field.width>200);
+  assert.equal(field.parent,'browserRoot','the controlled form retains its native React parent');assert.equal(field.popover,false);
+  await page.evaluate("document.querySelector('[data-ccd-browser-toolbar]').onsubmit=event=>{event.preventDefault();window.submittedAddress=event.currentTarget.querySelector('input').value}");
+  await page.send('Input.dispatchMouseEvent',{type:'mousePressed',x:field.left+80,y:field.fieldY,button:'left',clickCount:1});
+  await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',x:field.left+80,y:field.fieldY,button:'left',clickCount:1});
+  assert.equal(await page.evaluate("document.activeElement===document.querySelector('[data-ccd-browser-toolbar] input')"),true,'the header field receives real pointer hits through the native scroll body');
+  await page.send('Input.insertText',{text:'http://localhost:3000'});
+  await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',text:'\r',unmodifiedText:'\r',windowsVirtualKeyCode:13});
+  await page.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await wait(page);
+  assert.equal(await page.evaluate('window.submittedAddress'),'http://localhost:3000','direct entry keeps native Enter submission');
+  await page.evaluate("document.querySelector('[data-ccd-browser-toolbar] input').focus()");await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-menu]')"),null,'globe does not open a menu');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-address]')"),null,'server/globe button is omitted');
+  assert.equal(await page.evaluate("document.activeElement===document.querySelector('[data-ccd-browser-toolbar] input')"),true);
+  await click(page,'[data-ccd-pane-more]');await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-menu]').textContent"),'保存截图');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-save-screenshot]').disabled"),true);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-menu]').getBoundingClientRect().width"),130);
+  const shot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile('/tmp/ccd-browser-capture-menu.png',Buffer.from(shot.data,'base64'));
+  await page.evaluate("document.querySelector('[data-ccd-browser-menu]').hidePopover()");await wait(page);
+  await page.evaluate("document.querySelector('[data-ccd-browser-toolbar] input').focus()");await wait(page);
+  assert.equal(await page.evaluate("document.activeElement===document.querySelector('[data-ccd-browser-toolbar] input')"),true,'native address editing remains reachable');
+  await page.evaluate("window.captureCount=0;window.downloads=[];const view=document.createElement('webview');view.getURL=()=> 'http://localhost:3000';view.isLoading=()=>false;view.capturePage=()=>{window.captureCount++;return new Promise(resolve=>window.finishCapture=()=>resolve({isEmpty:()=>false,toDataURL:()=> 'data:image/png;base64,iVBORw0KGgo='}))};document.querySelector('[aria-busy]').append(view);document.addEventListener('click',event=>{const a=event.target.closest('a[download]');if(a){event.preventDefault();window.downloads.push({name:a.download,url:a.href})}})");await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-wait]')"),null);
+  await click(page,'[data-ccd-pane-more]');await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-save-screenshot]').disabled"),false);
+  await click(page,'[data-ccd-browser-save-screenshot]');await wait(page);
+  await click(page,'[data-ccd-pane-more]');await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-save-screenshot]').disabled"),true,'pending capture cannot run twice');
+  await page.evaluate('window.finishCapture()');await wait(page);
+  assert.equal(await page.evaluate('window.captureCount'),1);
+  assert.deepEqual(await page.evaluate('window.downloads'),[{name:'browser-screenshot.png',url:'data:image/png;base64,iVBORw0KGgo='}]);
+  await page.evaluate("document.querySelector('[data-ccd-browser-menu]').hidePopover()");
+  await click(page,'[data-ccd-pane-more]');await wait(page);
+  await click(page,'[data-ccd-browser-save-screenshot]');await wait(page);
+  await page.evaluate("window.closeTab('browser');window.finishCapture()");await wait(page);
+  assert.equal(await page.evaluate('window.downloads.length'),1,'closing the browser while capture is pending cannot download stale content');
+}));
+
+test('the whole right panel writes its own words in the document’s language',options,async()=>withFixture(async page=>{
+  await page.evaluate("window.add('t','terminal');window.add('f','files');window.add('w','browser')");await wait(page);
+  /* The fixture is a Chinese document: every word this plugin adds is Chinese,
+     and the host's own words (the root path, the reload button) keep theirs. */
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=f] [data-ccd-pane-caption]').textContent"),'文件');
+  assert.match(await page.evaluate("document.querySelector('[data-dockkit-content=t] [data-ccd-pane-caption]').textContent"),/^终端/);
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=f] [data-ccd-pane-search]').getAttribute('aria-label')"),'搜索文件');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-files-filter] > input').placeholder"),'搜索文件名…');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-wait]').textContent"),'等待服务器响应…');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-toolbar] input').placeholder"),'输入 URL');
+  await click(page,'[data-dockkit-content=f] [data-ccd-pane-more]');await wait(page);
+  const rows=await page.evaluate("[...document.querySelectorAll('[data-ccd-pane-menu] button')].map(node=>node.textContent)");
+  assert.deepEqual(rows,['收起文件树','刷新文件','Open folder in app','放大面板','收起侧边栏','关闭']);
+  await page.evaluate("document.querySelector('[data-ccd-pane-menu]').hidePopover()");await wait(page);
+  /* DSH re-points `<html lang>` when the reader switches language, and the
+     panel follows it — including the menus that are built when opened. */
+  await page.evaluate("document.documentElement.lang='en'");await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-dockkit-content=f] [data-ccd-pane-caption]').textContent"),'Files');
+  assert.match(await page.evaluate("document.querySelector('[data-dockkit-content=t] [data-ccd-pane-caption]').textContent"),/^Terminal/);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-files-filter] > input').placeholder"),'Search file names…');
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-wait]').textContent"),'Awaiting server…');
+  await click(page,'[data-dockkit-content=f] [data-ccd-pane-more]');await wait(page);
+  assert.deepEqual(await page.evaluate("[...document.querySelectorAll('[data-ccd-pane-menu] button')].map(node=>node.textContent)"),
+    ['Hide file tree','Refresh files','Open folder in app','Expand pane','Hide sidebar','Close']);
+  await page.evaluate("document.querySelector('[data-ccd-pane-menu]').hidePopover()");
+  await click(page,'[data-dockkit-content=w] [data-ccd-pane-more]');await wait(page);
+  assert.equal(await page.evaluate("document.querySelector('[data-ccd-browser-menu]').textContent"),'Save screenshot');
+}));
+
+for (const kind of ['files', 'terminal', 'browser']) {
+  test(`closing the last ${kind} keeps the native guide hidden before collapse`,options,async()=>withFixture(async page=>{
+    await page.evaluate(`window.add('last', '${kind}')`);await wait(page);
+    assert.equal(await page.evaluate(`(()=>{
+      window.closeTab('last');
+      return getComputedStyle(document.querySelector('[data-dockkit-pane]')).display;
+    })()`),'none','the synchronous close cannot expose the guide before the deferred toggle');
+    await wait(page);
+    assert.equal(await page.evaluate('window.calls.toggle'),1);
+    assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-dockkit-pane]')).display"),'none','collapsed transition keeps the guide hidden');
+    await page.evaluate("document.querySelector('[data-sidebar-right-panel]').setAttribute('data-sidebar-right-open','')");await wait(page);
+    assert.notEqual(await page.evaluate("getComputedStyle(document.querySelector('[data-dockkit-pane]')).display"),'none','explicitly reopening an empty sidebar restores the guide');
+  }));
+}
+
+
+test('right sidebar toggles remove controls and styles together, independent of the left sidebar', options, async () => withFixture(async page => {
+  await page.evaluate("window.add('files','files'); window.add('terminal','terminal')");
+  await wait(page);
+  await page.evaluate("window.nativeTree=document.querySelector('[data-files-root]'); window.nativeTerminal=document.querySelector('[data-dockkit-content=terminal]');");
+  for (const left of [false, true]) {
+    for (const right of [false, true, false, true]) {
+      await page.evaluate(`window.release(); window.mount({sidebar:${left}, 'right-panel':${right}})`);
+      await wait(page);
+      const state = await page.evaluate(`(() => {
+        const filter=document.querySelector('[data-ccd-files-filter]');
+        const folder=document.querySelector('[data-ccd-files-empty-mark] svg');
+        return {
+          filters:document.querySelectorAll('[data-ccd-files-filter]').length,
+          panes:document.querySelectorAll('[data-ccd-pane]').length,
+          sheets:document.querySelectorAll('style[data-plugin]').length,
+          treeUnchanged:window.nativeTree===document.querySelector('[data-files-root]'),
+          terminalUnchanged:window.nativeTerminal===document.querySelector('[data-dockkit-content=terminal]'),
+          searchWidth:filter?.querySelector('svg')?.getBoundingClientRect().width ?? 0,
+          folderWidth:folder?.getBoundingClientRect().width ?? 0,
+          leftovers:document.querySelectorAll('[data-ccd-files-landing], [data-ccd-files-expand], [data-ccd-pane-controls], [data-ccd-pane-seam], [data-ccd-files-empty]').length,
+        };
+      })()`);
+      assert.equal(state.filters, right ? 1 : 0);
+      assert.equal(state.sheets, right ? 2 : 0);
+      assert.equal(state.treeUnchanged, true, 'host file tree is preserved');
+      assert.equal(state.terminalUnchanged, true, 'open terminal is preserved');
+      if (right) {
+        assert.ok(state.panes >= 2);
+        assert.equal(state.searchWidth, 16, 'search SVG keeps its intended size');
+        assert.ok(state.folderWidth <= 28, 'empty-state SVG cannot grow to panel width');
+      } else {
+        assert.equal(state.panes, 0);
+        assert.equal(state.leftovers, 0, 'no unstyled plugin controls survive disable');
+      }
+    }
+  }
+}));
+
+
+for (const standalone of [false, true]) {
+  test(`rc22 preview navigator owns tree controls with standalone Files=${standalone}`,options,async()=>withFixture(async page=>{
+    await wait(page);
+    const preview='[data-dockkit-content="native-preview"]';
+    assert.equal(await page.evaluate('window.calls.open.length'),0,'embedded navigator needs no extra Files tab');
+    assert.equal(await page.evaluate(`!!document.querySelector('${preview} [data-ccd-files-switch]')`),true);
+    assert.equal(await page.evaluate(`getComputedStyle(document.querySelector('${preview} [data-files-navigator]')).display`),'flex','legacy Files grid must not reshape navigator');
+    const side=await page.evaluate(`(()=>{const nav=document.querySelector('${preview} [data-files-navigator]').getBoundingClientRect();const main=document.querySelector('${preview} main').getBoundingClientRect();return{leading:nav.right<=main.left+0.5,width:nav.width,separator:getComputedStyle(document.querySelector('${preview} [data-files-navigator-resize]')).display,seam:!!document.querySelector('[data-ccd-pane-seam][aria-label="调整文件树宽度"],[data-ccd-pane-seam][aria-label="Resize file tree"]')}})()`);
+    assert.equal(side.leading,true,'the navigator sits on the card\'s leading edge, before the preview');
+    assert.notEqual(side.width,220,'its width follows the plugin seam, not the host width');
+    assert.equal(side.separator,'none','the host\'s trailing-edge separator is hidden');
+    assert.equal(side.seam,true,'the plugin seam resizes the navigator');
+    await click(page,`${preview} [data-ccd-pane-search]`);await wait(page);
+    assert.equal(await page.evaluate(`document.activeElement===document.querySelector('${preview} [data-ccd-files-filter] input')`),true);
+    await click(page,`${preview} [data-ccd-files-switch]`);await wait(page);
+    assert.equal(await page.evaluate('window.navigatorCalls'),1,'collapse forwards native preference and focus behavior');
+    assert.equal(await page.evaluate(`document.querySelector('${preview} [data-files-navigator]')===null`),true,'host closing unmounts the navigator');
+    await click(page,`${preview} [data-ccd-pane-search]`);await wait(page);
+    assert.equal(await page.evaluate('window.navigatorCalls'),2,'search reopens via host toggle');
+    assert.equal(await page.evaluate(`document.activeElement===document.querySelector('${preview} [data-ccd-files-filter] input')`),true,'search focuses the remounted filter');
+    if(standalone) assert.equal(await page.evaluate(`document.querySelector('[data-dockkit-content="native-files"]').hasAttribute('data-ccd-pane-inactive')`),true,'embedded tree has precedence over a duplicate standalone tree');
+    await page.evaluate('window.release()');
+    assert.equal(await page.evaluate(`!!document.querySelector('[data-files-navigator-resize]')`),true,'native resize survives teardown');
+  },`
+    const originalBody=window.bodyFor;
+    window.bodyFor=tab=>tab.kind==='text' ? '<div style="display:flex;flex:1"><main>Preview</main><aside data-files-navigator="p1" data-files-navigator-mode="push" data-files-root="/repo" style="display:flex;flex-direction:column;--files-navigator-width:220px"><div data-files-navigator-resize role="separator" tabindex="0"></div><div data-files-body><ul><li data-files-entry="file" data-files-path="/repo/app.ts"><div><button>app.ts</button><div></div></div></li></ul></div></aside><button data-files-navigator-toggle aria-expanded="true">Tree</button></div>' : originalBody(tab);
+    ${standalone ? "window.add('native-files','files');" : ''}
+    window.add('native-preview','text','s1','dsh-resource://file/session/s1/repo/app.ts');
+    window.navigatorCalls=0;
+    window.navigatorMarkup=document.querySelector('[data-files-navigator]').outerHTML;
+    document.querySelector('[data-files-navigator-toggle]').onclick=event=>{window.navigatorCalls++;const button=event.currentTarget;const open=button.getAttribute('aria-expanded')!=='true';button.setAttribute('aria-expanded',String(open));if(!open)document.querySelector('[data-files-navigator]').remove();else setTimeout(()=>{button.insertAdjacentHTML('beforebegin',window.navigatorMarkup);const restored=document.querySelector('[data-files-navigator]');restored.querySelectorAll('[data-ccd-files-header],[data-ccd-files-expand],[data-ccd-files-landing]').forEach(el=>el.remove())},10)};
+  `));
+}

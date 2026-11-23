@@ -1,0 +1,106 @@
+/*
+ * Blank-session page: the reference keeps the Composer at the bottom edge with
+ * the workspace row below it, and DSH renders the greeting, that row
+ * and the input bar as one block inside the Composer seat. This module moves
+ * the block to the bottom and lifts the greeting out of it into the middle of
+ * the page — the Composer element, its editor and every control stay exactly
+ * where the host renders them.
+ *
+ * Host classes are pinned in src/client/compat/host-dom.ts.
+ */
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] {
+  --ccd-hero-seat-position: static;
+  --ccd-hero-stats-position: absolute;
+  --ccd-hero-stats-margin: 0;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .ST7X_W_scrollBody {
+  justify-content: flex-start;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .ST7X_W_composerSeat {
+  margin-top: auto;
+}
+
+/* Greeting: the host's own centred block, taken out of the Composer group and
+   put near the top of the page the way the reference shows it — the statistics
+   card hangs below it, so a centred block would push the card into the
+   Composer on a short window. Its containing block is the conversation body,
+   so the percentages resolve against the content column; the host keeps
+   centring the title inside the block. */
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .bocITq_root {
+  position: absolute;
+  inset: var(--ccd-hero-top) auto auto 50%;
+  width: min(calc(var(--dsh-composer-card-max-width, 770px) + 32px), calc(100% - 32px));
+  height: auto;
+  padding: 0 16px;
+  translate: -50% 0;
+}
+
+/* Only the brand mark, the title type and the preview badge are restyled. */
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .bocITq_fish {
+  width: 26px;
+  height: 20px;
+}
+
+/* The reference left-aligns the greeting: the title, the statistics card below
+   it and the Composer card all start at the same left edge. The host centres
+   the headline inside a 770px stack, so the stack itself is already in place
+   and only the headline's own centring has to go. */
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .bocITq_headline {
+  justify-content: flex-start;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .bocITq_titleGroup {
+  color: var(--ccd-text);
+  font-size: var(--ccd-font-size-headline);
+  font-weight: 400;
+  line-height: 26px;
+  letter-spacing: -0.01em;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .bocITq_previewBadge {
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: var(--ccd-text-secondary);
+  font-size: 11px;
+  line-height: 20px;
+}
+
+/* Keep the composer off the window edge exactly as the reference does: the
+   stack's own bottom padding supplies it, the seat adds none. */
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .ST7X_W_composerSeat {
+  padding-bottom: 0;
+}
+
+/* Let the selected home background show through the conversation header. */
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .ST7X_W_header {
+  background: transparent;
+}
+
+/* The original React heading stays in place for instant restoration. */
+html[data-dsh-ccd-style="true"] [data-ccd-greeting-style="none"] {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-greeting-style="claude"] > :not([data-ccd-greeting]) {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-greeting] {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--ccd-text-strong);
+  font: 400 20px/26px var(--ccd-font-ui);
+  letter-spacing: -0.01em;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-greeting] > svg {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  fill: var(--ccd-claude-coral);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-greeting] > span {
+  overflow-wrap: anywhere;
+}

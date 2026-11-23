@@ -1,0 +1,698 @@
+import type { Context } from '@deepseek-ai/cordis';
+import type { Disposer, SidebarRightPort, SidebarTabRecord } from '../contracts/ports.ts';
+import { mountPaneChrome, type PaneChrome } from './pane-chrome.ts';
+import { relativeFilePath } from './relative-file-path.ts';
+import { paneLabels, paneLanguage } from './pane-labels.ts';
+import { hostSelectors } from './host-dom.ts';
+import { EMPTY_LAYOUT, reconcilePanes, resizePanes, tilePanes, type PaneLayout, type PaneRect, type PaneSeam } from './pane-tiles.ts';
+
+/** DockLayout can only render two horizontal dock panes. Its floating leaves
+ * have no such limit: retain those host-rendered bodies and controls, and give
+ * them session-owned column geometry. No React-owned node is reparented. */
+export const PANES_ATTRIBUTE = 'data-ccd-panes';
+export const PANE_ATTRIBUTE = 'data-ccd-pane';
+export const SEAM_ATTRIBUTE = 'data-ccd-pane-seam';
+export const SEAM_AXIS_ATTRIBUTE = 'data-ccd-pane-axis';
+export const SEAM_INDEX_ATTRIBUTE = 'data-ccd-pane-seam-index';
+export const DRAGGING_ATTRIBUTE = 'data-ccd-pane-dragging';
+export const PANE_LEFT_PROPERTY = '--ccd-pane-left';
+export const PANE_TOP_PROPERTY = '--ccd-pane-top';
+export const PANE_WIDTH_PROPERTY = '--ccd-pane-width';
+export const PANE_HEIGHT_PROPERTY = '--ccd-pane-height';
+const GAP = 12;
+const HEADER = 32;
+const INACTIVE = 'data-ccd-pane-inactive';
+const TREE = 'data-ccd-pane-tree';
+const PREVIEW = 'data-ccd-pane-preview';
+const JOINED = 'data-ccd-files-combined';
+const LEADING = 'data-ccd-pane-leading';
+const COMPACT = 'data-ccd-files-compact';
+const TREE_WIDTH = '--ccd-files-tree-width';
+const FILE_GROUP = 'files';
+const TERMINAL_GROUP = 'terminals';
+const BROWSER_GROUP = 'browsers';
+const EXPANDED = 'data-ccd-pane-expanded';
+const CLOSING = 'data-ccd-panes-closing';
+
+interface SessionState {
+  layout: PaneLayout;
+  preview: string | null;
+  terminal: string | null;
+  browser: string | null;
+  browsers: Set<string>;
+  terminals: Set<string>;
+  previews: Set<string>;
+  fileShare: number;
+  maximized: string | null;
+  requestedFiles: boolean;
+  hadViews: boolean;
+  active: string | null;
+  /** Whether this Session's first tab set has been read (a restored layout is not an open). */
+  seeded: boolean;
+  /** Size of the tab set read last, so a reconciliation is told from an open. */
+  records: number;
+}
+interface Group {
+  readonly id: string;
+  readonly tabs: readonly string[];
+  readonly tree?: string;
+  readonly preview?: string;
+  readonly terminal?: string;
+  readonly browser?: string;
+}
+interface Boundary {
+  readonly key: string;
+  readonly seam: PaneSeam;
+  readonly extent: number;
+  readonly minimum: number;
+  readonly files: boolean;
+  readonly value: number;
+}
+interface Placement {
+  readonly root: HTMLElement;
+  readonly session: string;
+  readonly boundaries: readonly Boundary[];
+}
+interface Drag {
+  readonly boundary: Boundary;
+  readonly placement: Placement;
+  readonly pointer: number;
+  readonly origin: number;
+  readonly layout: PaneLayout;
+  readonly fileShare: number;
+  readonly controller: AbortController;
+}
+
+export function mountRightPanes(ctx: Context, document: Document, report: (error: unknown) => void): Disposer {
+  const registration = ctx.inject(['sidebarRight'], scope => {
+    const sidebar = (scope as Context & { sidebarRight?: SidebarRightPort }).sidebarRight;
+    if (typeof sidebar?.float !== 'function' || typeof sidebar.dock !== 'function') return () => {};
+    return createRightPanes(document, sidebar, report);
+  });
+  return () => { void registration.dispose(); };
+}
+
+function createRightPanes(document: Document, sidebar: SidebarRightPort, report: (error: unknown) => void): Disposer {
+  const host = hostSelectors(document);
+  const sessions = new Map<string, SessionState>();
+  const floated = new Map<string, Set<string>>();
+  const asked = new Set<string>();
+  const owned = new Set<HTMLElement>();
+  const seams = new Map<string, HTMLElement>();
+  const controls = new Map<HTMLElement, PaneChrome>();
+  let placement: Placement | null = null;
+  let observed: HTMLElement | null = null;
+  let dragging: Drag | null = null;
+  let observer: MutationObserver | undefined;
+  let resize: ResizeObserver | undefined;
+  let unsubscribe: Disposer = () => {};
+  let disposed = false;
+  let syncing = false;
+  let queued = false;
+  const zh = () => (document.documentElement.lang || globalThis.navigator?.language || '').toLowerCase().startsWith('zh');
+
+  const stateOf = (session: string): SessionState => {
+    let state = sessions.get(session);
+    if (state === undefined) {
+      state = { layout: EMPTY_LAYOUT, preview: null, terminal: null, browser: null, browsers: new Set(), terminals: new Set(), previews: new Set(), fileShare: 0.4, maximized: null, requestedFiles: false, hadViews: false, active: null, seeded: false, records: -1 };
+      sessions.set(session, state);
+    }
+    return state;
+  };
+  const panelOnScreen = (): HTMLElement | null => [...document.querySelectorAll<HTMLElement>(host.rightbarPanel)]
+    .find(panel => panel.closest('[hidden]') === null) ?? null;
+  const sessionOf = (panel: HTMLElement): string | null => panel.closest(host.rightbarSession)?.getAttribute('data-sidebar-right-session') ?? null;
+  const setAttribute = (node: HTMLElement, name: string, value: string) => {
+    if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+  };
+  const setProperty = (node: HTMLElement, name: string, value: string) => {
+    if (node.style.getPropertyValue(name) !== value) node.style.setProperty(name, value);
+  };
+  const isFile = (record: SidebarTabRecord) => record.kind === 'text' && record.contentId?.startsWith('dsh-resource://file/') === true;
+
+  /**
+   * Pair a file preview the reader just opened with the Files tree.
+   *
+   * The tree used to be asked for whenever the tab set held previews without a
+   * `files` record. That is also exactly what a *restored* layout looks like
+   * while the host is still dropping the tabs it cannot revive — and the tab
+   * this module opened in that window reached the panel before the seat had
+   * reconciled it, which the host answers by throwing
+   * `sidebarRight: tab "<id>" has no committed occurrence` out of its
+   * `rightbar.session` entry. The whole right column then went dead: no
+   * `openResource`/`openTab` did anything — conversation file links included —
+   * and only an app restart brought the cards back. Measured in the running
+   * app with `scripts/watch-sidebar.mjs`.
+   *
+   * So the request is bound to the reader's own action instead of to the shape
+   * of the tab set: a preview id this mount has never seen, in a tab set that
+   * is not shrinking (that is a reconciliation, not an open), on a column that
+   * is on screen. The first pass of a Session only seeds what is already there,
+   * and the write is deferred to a later task so it cannot land inside the
+   * host's own commit sequence.
+   */
+  const pairPreviewWithTree = (
+    session: string,
+    panel: HTMLElement,
+    state: SessionState,
+    records: readonly SidebarTabRecord[],
+    previews: readonly string[],
+    opened: boolean,
+  ): void => {
+    if (previews.length === 0) state.requestedFiles = false;
+    if (panel.querySelector('[data-files-navigator-toggle], [data-files-navigator]') !== null) return;
+    if (!opened || state.requestedFiles || records.some(record => record.kind === 'files')) return;
+    state.requestedFiles = true;
+    window.setTimeout(() => {
+      if (disposed || !panel.isConnected || sessionOf(panel) !== session) return;
+      /* Re-read the tab set: the host may have opened the tree by another path,
+         or dropped the preview that asked for it, since this pass. */
+      const live = (sidebar.openTabs?.getSnapshot?.() ?? []).filter(record => record.sessionId === session);
+      if (panel.querySelector('[data-files-navigator-toggle], [data-files-navigator]') !== null) return;
+      if (live.some(record => record.kind === 'files') || !live.some(isFile)) return;
+      try { sidebar.openTab('files'); } catch (error) { report(error); }
+    }, 0);
+  };
+
+  const groupsOf = (records: readonly SidebarTabRecord[], state: SessionState, active: string | null): Group[] => {
+    const tree = records.find(record => record.kind === 'files');
+    const previews = records.filter(isFile).map(record => record.tabId);
+    const newest = previews.filter(id => !state.previews.has(id)).at(-1);
+    if (newest !== undefined) state.preview = newest;
+    else if (active !== null && active !== state.active && previews.includes(active)) state.preview = active;
+    if (state.preview === null || !previews.includes(state.preview)) state.preview = previews.at(-1) ?? null;
+    state.previews = new Set(previews);
+    const terminalIds = records.filter(record => record.kind === 'terminal').map(record => record.tabId);
+    const addedTerminal = terminalIds.filter(id => !state.terminals.has(id)).at(-1);
+    if (addedTerminal !== undefined) state.terminal = addedTerminal;
+    else if (active !== null && active !== state.active && terminalIds.includes(active)) state.terminal = active;
+    if (state.terminal === null || !terminalIds.includes(state.terminal)) state.terminal = terminalIds.at(-1) ?? null;
+    state.terminals = new Set(terminalIds);
+    const browserIds = records.filter(record => record.kind === 'browser').map(record => record.tabId);
+    const addedBrowser = browserIds.filter(id => !state.browsers.has(id)).at(-1);
+    if (addedBrowser !== undefined) state.browser = addedBrowser;
+    else if (active !== null && active !== state.active && browserIds.includes(active)) state.browser = active;
+    if (state.browser === null || !browserIds.includes(state.browser)) state.browser = browserIds.at(-1) ?? null;
+    state.browsers = new Set(browserIds);
+    const groups: Group[] = [];
+    let browsersAdded = false;
+    let terminalsAdded = false;
+    let filesAdded = false;
+    for (const record of records) {
+      if (record.kind === 'guide') continue;
+      if (record.kind === 'terminal') {
+        if (!terminalsAdded) { groups.push({ id: TERMINAL_GROUP, tabs: terminalIds, ...(state.terminal === null ? {} : { terminal: state.terminal }) }); terminalsAdded = true; }
+      } else if (record.kind === 'browser') {
+        if (!browsersAdded) { groups.push({ id: BROWSER_GROUP, tabs: browserIds, ...(state.browser === null ? {} : { browser: state.browser }) }); browsersAdded = true; }
+      } else if ((tree !== undefined && record.tabId === tree.tabId) || isFile(record)) {
+        if (!filesAdded) {
+          groups.push({ id: FILE_GROUP, tabs: [...(tree === undefined ? [] : [tree.tabId]), ...previews],
+            ...(tree === undefined ? {} : { tree: tree.tabId }),
+            ...(state.preview === null ? {} : { preview: state.preview }) });
+          filesAdded = true;
+        }
+      } else groups.push({ id: record.tabId, tabs: [record.tabId] });
+    }
+    return groups;
+  };
+
+  const place = (node: HTMLElement, id: string, rect: PaneRect) => {
+    owned.add(node);
+    setAttribute(node, PANE_ATTRIBUTE, id);
+    setProperty(node, PANE_LEFT_PROPERTY, `${rect.x}px`);
+    setProperty(node, PANE_TOP_PROPERTY, `${rect.y}px`);
+    setProperty(node, PANE_WIDTH_PROPERTY, `${rect.width}px`);
+    setProperty(node, PANE_HEIGHT_PROPERTY, `${rect.height}px`);
+  };
+  const clearNode = (node: HTMLElement) => {
+    for (const attr of [PANE_ATTRIBUTE, INACTIVE, TREE, PREVIEW, JOINED, LEADING, COMPACT]) node.removeAttribute(attr);
+    for (const property of [PANE_LEFT_PROPERTY, PANE_TOP_PROPERTY, PANE_WIDTH_PROPERTY, PANE_HEIGHT_PROPERTY, TREE_WIDTH]) node.style.removeProperty(property);
+    controls.get(node)?.release();
+    controls.delete(node);
+    owned.delete(node);
+  };
+  const endDrag = () => {
+    if (dragging === null) return;
+    dragging.controller.abort();
+    dragging.placement.root.removeAttribute(DRAGGING_ATTRIBUTE);
+    dragging = null;
+  };
+  const clear = () => {
+    endDrag();
+    placement = null;
+    for (const node of [...owned]) clearNode(node);
+    for (const node of seams.values()) node.remove();
+    seams.clear();
+    for (const root of document.querySelectorAll<HTMLElement>(`[${PANES_ATTRIBUTE}]`)) root.removeAttribute(PANES_ATTRIBUTE);
+    for (const panel of document.querySelectorAll(`[${EXPANDED}]`)) panel.removeAttribute(EXPANDED);
+  };
+
+  /** Exact reference chrome; native bodies and the close control stay intact. */
+  const decorate = (node: HTMLElement, group: Group, root: HTMLElement, state: SessionState, records: readonly SidebarTabRecord[]) => {
+    let chrome = controls.get(node);
+    if (chrome === undefined) {
+      const created = mountPaneChrome(node);
+      if (created === null) return;
+      chrome = created;
+      controls.set(node, chrome);
+    }
+    const record = records.find(record => record.tabId === node.getAttribute('data-dockkit-content'));
+    const filesRoot = node.querySelector<HTMLElement>('[data-files-navigator]')
+      ?? (node.querySelector('[data-files-navigator-toggle]') !== null || group.tree === undefined ? null : root.querySelector<HTMLElement>(`[data-dockkit-content="${group.tree}"] [data-files-root]`));
+    const filepath = (id: string) => {
+      const source = root.querySelector<HTMLElement>(`[data-dockkit-content="${id}"] [data-textpreview-path]`);
+      let path = source?.title || records.find(record => record.tabId === id)?.contentId || id;
+      if (path.startsWith('dsh-resource://file/session/')) path = path.replace(/^dsh-resource:\/\/file\/session\/[^/]+/u, '');
+      try { path = decodeURIComponent(path); } catch { /* Retain malformed paths. */ }
+      const cwd = filesRoot?.getAttribute('data-files-root');
+      return cwd ? relativeFilePath(path, cwd) : path;
+    };
+    const filename = (id: string) => {
+      let value = records.find(record => record.tabId === id)?.contentId?.split('/').at(-1) ?? id;
+      try { value = decodeURIComponent(value); } catch { /* Keep malformed paths readable. */ }
+      return value;
+    };
+    const workspace = root.querySelector('[data-files-root]')?.getAttribute('data-files-root')?.split('/').filter(Boolean).at(-1)
+      ?? document.querySelector('[data-row-key^="workspace:"]')?.textContent?.trim() ?? '';
+    const kind = record?.kind ?? '';
+    const nativeTitle = node.querySelector('[data-dockkit-tab-title]')?.textContent?.trim() ?? '';
+    const terminalName = nativeTitle && !/^(?:zsh|bash|fish|pwsh|powershell|cmd|终端|terminal)$/iu.test(nativeTitle) && nativeTitle !== record?.tabId ? nativeTitle : workspace;
+    const labels = paneLabels(paneLanguage(document));
+    const title = kind === 'files' ? labels.files.title : kind === 'terminal' ? `${labels.chrome.terminal}${terminalName ? ` ${terminalName}` : ''}`
+      : group.preview ? filename(group.preview) : node.querySelector('[data-dockkit-tab-title]')?.textContent?.trim() ?? '';
+    chrome.update({ kind, title, filesRoot, zoomed: state.maximized === group.id,
+      panel: root.closest<HTMLElement>(host.rightbarPanel)!,
+      onZoom: () => {
+        state.maximized = state.maximized === group.id ? null : group.id;
+        sidebar.focus(group.browser ?? group.terminal ?? group.preview ?? group.tree ?? group.tabs[0]!);
+        endDrag(); schedule();
+      },
+      onNew: () => {
+        if (kind === 'browser') sidebar.openTab('browser', { revealIfOpened: false });
+        else sidebar.openTab('terminal');
+      },
+      closeTabs: group.tabs,
+      ...(sidebar.close ? { onCloseGroup: () => {
+        // Use host ids rather than DOM close buttons: React can commit the
+        // final group in one turn, without painting or focusing each survivor.
+        state.requestedFiles = true;
+        for (const id of group.tabs) sidebar.close!(id);
+        schedule();
+      } } : {}),
+      onSelect: id => { if (group.id === TERMINAL_GROUP) state.terminal = id; else if (group.id === BROWSER_GROUP) state.browser = id; else state.preview = id; sidebar.focus(id); schedule(); },
+      onClose: id => {
+        if (state.browser === id) {
+          const index = group.tabs.indexOf(id);
+          state.browser = group.tabs[index + 1] ?? group.tabs[index - 1] ?? null;
+          if (state.browser !== null) sidebar.focus(state.browser);
+        }
+        if (state.preview === id) {
+          const files = group.tabs.filter(tab => records.some(record => record.tabId === tab && isFile(record)));
+          const index = files.indexOf(id);
+          state.preview = files[index + 1] ?? files[index - 1] ?? null;
+          if (state.preview !== null) sidebar.focus(state.preview);
+        }
+        // The group closes one tab at a time; hold the Files tree back while
+        // previews remain, or the sync between two closes reopens it.
+        state.requestedFiles = true;
+        const close = root.querySelector<HTMLButtonElement>(`[data-dockkit-content="${id}"] [data-dockkit-float-close]`);
+        if (close) { close.setAttribute('data-ccd-close-tab', ''); close.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); close.removeAttribute('data-ccd-close-tab'); }
+      },
+      browsers: group.id === BROWSER_GROUP ? group.tabs.map(id => {
+        const pane = root.querySelector<HTMLElement>(`[data-dockkit-content="${id}"]`);
+        const title = pane?.querySelector('[data-dockkit-tab-title]')?.textContent?.trim();
+        return { id, title: title && !/^(?:browser|浏览器)$/iu.test(title) && title !== id ? title : labels.browser.newTab, selected: id === group.browser };
+      }) : [],
+      terminals: group.id === TERMINAL_GROUP ? group.tabs.map((id, index) => ({ id, title: group.tabs.length > 1 ? `${labels.chrome.terminal} ${index + 1}${workspace ? ` ${workspace}` : ''}` : title, selected: id === group.terminal })) : [],
+      files: group.tabs.filter(id => id !== group.tree && records.find(record => record.tabId === id)?.kind === 'text')
+        .map(id => ({ id, title: filename(id), path: filepath(id), selected: id === group.preview })),
+    });
+  };
+
+  const placeSeams = (root: HTMLElement, boundaries: readonly Boundary[]) => {
+    const live = new Set<string>();
+    for (const boundary of boundaries) {
+      const { key, seam } = boundary;
+      live.add(key);
+      let node = seams.get(key);
+      if (node === undefined) {
+        node = document.createElement('div');
+        node.setAttribute(SEAM_ATTRIBUTE, key);
+        node.setAttribute('role', 'separator');
+        node.tabIndex = 0;
+        seams.set(key, node);
+      }
+      setAttribute(node, SEAM_AXIS_ATTRIBUTE, seam.axis);
+      setAttribute(node, SEAM_INDEX_ATTRIBUTE, String(seam.index));
+      setAttribute(node, 'aria-orientation', seam.axis === 'row' ? 'horizontal' : 'vertical');
+      setAttribute(node, 'aria-label', zh() ? (boundary.files ? '调整文件树宽度' : '调整面板大小') : (boundary.files ? 'Resize file tree' : 'Resize panes'));
+      setAttribute(node, 'aria-valuemin', String(Math.round(boundary.minimum * 100)));
+      setAttribute(node, 'aria-valuemax', String(Math.round((1 - boundary.minimum) * 100)));
+      setAttribute(node, 'aria-valuenow', String(Math.round(boundary.value * 100)));
+      place(node, key, seam.rect);
+      // Seams use geometry properties but are not view bodies.
+      node.removeAttribute(PANE_ATTRIBUTE);
+      owned.delete(node);
+      if (node.parentElement !== root) root.append(node);
+    }
+    for (const [key, node] of seams) if (!live.has(key)) { node.remove(); seams.delete(key); }
+  };
+
+  const sync = () => {
+    const panel = panelOnScreen();
+    const root = panel?.querySelector<HTMLElement>(host.dockSurface) ?? null;
+    const session = panel === null ? null : sessionOf(panel);
+    const records = (sidebar.openTabs?.getSnapshot?.() ?? []).filter(record => record.sessionId === session);
+    for (const button of document.querySelectorAll<HTMLElement>('[data-ccd-header-view]')) {
+      const kind = button.getAttribute('data-ccd-header-view');
+      const headerSession = button.closest(host.conversationRoot)?.querySelector('[data-conversation-session]')?.getAttribute('data-conversation-session');
+      const shown = panel?.hasAttribute('data-sidebar-right-open') === true
+        && panel.closest('[data-rightbar-collapsed]') === null
+        && headerSession === session
+        && records.some(record => record.kind === kind);
+      setAttribute(button, 'aria-pressed', String(shown));
+    }
+    if (root !== observed) {
+      clear();
+      resize?.disconnect();
+      observed = root;
+      if (root !== null) {
+        for (const seam of root.querySelectorAll(`[${SEAM_ATTRIBUTE}]`)) seam.remove();
+        resize?.observe(root);
+        const frame = root.closest<HTMLElement>(host.frame);
+        if (frame) resize?.observe(frame);
+        const navigation = frame?.querySelector<HTMLElement>(host.sidebarColumn);
+        if (navigation) resize?.observe(navigation);
+      }
+    }
+    if (root === null || panel === null || session === null) return;
+    if (!panel.hasAttribute('data-sidebar-right-open')) panel.removeAttribute(CLOSING);
+    const state = stateOf(session);
+    const active = root.querySelector<HTMLElement>('[data-dockkit-float-active]')?.getAttribute('data-dockkit-content') ?? null;
+    /* Read before `groupsOf` consumes it: what this pass holds that the last one
+       did not is a tab the reader opened, while a smaller set is the host
+       reconciling restored records. A Session's first pass counts as neither. */
+    const previews = records.filter(isFile).map(record => record.tabId);
+    const opened = state.seeded && records.length >= state.records && previews.some(id => !state.previews.has(id));
+    state.seeded = true;
+    state.records = records.length;
+    const groups = groupsOf(records, state, active);
+    const ids = groups.map(group => group.id);
+    const activeGroup = groups.find(group => group.tabs.includes(active ?? ''));
+    if (state.maximized !== null && active !== state.active && activeGroup !== undefined) state.maximized = activeGroup.id;
+    state.active = active;
+    if (state.maximized !== null) {
+      const held = new Set(state.layout.columns.flatMap(column => column.ids));
+      if (ids.some(id => !held.has(id))) state.maximized = null;
+    }
+    state.layout = reconcilePanes(state.layout, ids);
+    if (state.maximized !== null && !ids.includes(state.maximized)) state.maximized = null;
+    if (dragging !== null) {
+      const oldIds = new Set(dragging.layout.columns.flatMap(column => column.ids));
+      if (dragging.placement.session !== session || oldIds.size !== ids.length || ids.some(id => !oldIds.has(id))) endDrag();
+    }
+    if (groups.length === 0) {
+      clear();
+      /* The host's own `closeTab` plan already collapses the column when the last
+         docked tab goes; this catches the case where the last cards were floats.
+         It is deferred out of this pass and re-reads the column first, so the
+         write can neither land inside the host's commit sequence nor collapse a
+         column a newer open has already filled. */
+      if (state.hadViews && panel.hasAttribute('data-sidebar-right-open')) {
+        // Keep the native guide covered until the deferred collapse commits.
+        setAttribute(panel, CLOSING, '');
+        window.setTimeout(() => {
+          if (disposed || !panel.isConnected || !panel.hasAttribute('data-sidebar-right-open')) return;
+          /* The host's own records are the authority on whether anything is left
+             to look at: the DOM keeps nodes this module moved while a commit
+             settles, and a newer open has already added its record by now. */
+          const live = (sidebar.openTabs?.getSnapshot?.() ?? []).filter(record => record.sessionId === session);
+          if (live.some(record => record.kind !== 'guide')) return;
+          try { sidebar.toggleExpanded?.(); } catch (error) { report(error); }
+        }, 0);
+      }
+      state.hadViews = false;
+      state.requestedFiles = false;
+      return;
+    }
+    panel.removeAttribute(CLOSING);
+    state.hadViews = true;
+    pairPreviewWithTree(session, panel, state, records, previews, opened);
+    const box = root.getBoundingClientRect();
+    let area: PaneRect = { x: box.x, y: box.y, width: box.width, height: box.height };
+    if (state.maximized !== null) {
+      const frame = panel.closest<HTMLElement>(host.frame) ?? document.querySelector<HTMLElement>(host.frame);
+      const frameBox = frame?.getBoundingClientRect();
+      const navigation = frame?.querySelector<HTMLElement>(host.sidebarColumn)?.getBoundingClientRect();
+      const center = frame?.querySelector<HTMLElement>(host.centerColumn)?.getBoundingClientRect();
+      const left = navigation?.right ?? center?.left ?? frameBox?.left ?? 0;
+      const windowsCaption = document.documentElement.hasAttribute('data-windows-titlebar') && !document.documentElement.hasAttribute('data-fullscreen')
+        ? Number.parseFloat(document.documentElement.style.getPropertyValue('--dsh-windows-titlebar-height')) || 40 : 0;
+      const top = Math.max(center?.top ?? frameBox?.top ?? 0, windowsCaption);
+      area = { x: left + 8, y: top + 8, width: Math.max(0, (frameBox?.right ?? window.innerWidth) - left - 16), height: Math.max(0, (frameBox?.bottom ?? window.innerHeight) - top - 16) };
+      setAttribute(panel, EXPANDED, '');
+    } else panel.removeAttribute(EXPANDED);
+    if (area.width <= 0 || area.height <= 0) return;
+    const layout = tilePanes(area, state.layout, GAP);
+    const boundaries: Boundary[] = state.maximized === null ? layout.seams.map(seam => {
+      const column = state.layout.columns[seam.column];
+      const extent = seam.axis === 'row' ? area.height - GAP * ((column?.ids.length ?? 1) - 1) : area.width - GAP;
+      const value = seam.axis === 'row' ? (column?.sizes.slice(0, seam.index + 1).reduce((sum, size) => sum + size, 0) ?? 0.5) : state.layout.column;
+      return { key: `${seam.axis}:${seam.column}:${seam.index}`, seam, extent, minimum: Math.min(0.15, (seam.axis === 'row' ? 96 : 160) / extent), files: false, value };
+    }) : [];
+    const nodes = new Map([...root.querySelectorAll<HTMLElement>(host.dockContent)].map(node => [node.getAttribute('data-dockkit-content') ?? '', node]));
+    const liveNodes = new Set<HTMLElement>();
+    const sessionFloats = floated.get(session) ?? new Set<string>();
+    floated.set(session, sessionFloats);
+    for (const group of groups) {
+      const rect = state.maximized === group.id ? area : layout.rects.get(group.id);
+      if (rect === undefined) continue;
+      const hiddenGroup = state.maximized !== null && state.maximized !== group.id;
+      const tree = group.tree === undefined ? undefined : nodes.get(group.tree);
+      const preview = group.preview === undefined ? undefined : nodes.get(group.preview);
+      // Leave the tree usable while React is committing the preview's float.
+      const embedded = (preview?.querySelector('[data-files-navigator-toggle], [data-files-navigator]') ?? null) !== null;
+      const combined = !embedded && tree !== undefined && preview?.hasAttribute('data-dockkit-float') === true;
+      const treeHidden = tree?.querySelector('[data-files-root]')?.getAttribute('data-ccd-files-tree') === 'hidden';
+      /* DSH 0.2.2 draws the navigator inside the preview. Side by side
+         (`push`/`overlay`) it is moved to the card's leading edge, where the
+         host's own separator would resize backwards, so its width follows
+         this plugin's `fileShare` seam instead. */
+      const navigator = embedded ? preview?.querySelector<HTMLElement>('[data-files-navigator]:is([data-files-navigator-mode="push"], [data-files-navigator-mode="overlay"])') ?? null : null;
+      const navigatorTop = navigator?.getBoundingClientRect().top;
+      const compact = !combined && rect.width < 420;
+      const width = treeHidden ? 0 : compact ? rect.width : Math.min(Math.max(140, rect.width * state.fileShare), Math.max(0, rect.width - 140));
+      for (const tabId of group.tabs) {
+        const node = nodes.get(tabId);
+        if (node === undefined) continue;
+        const treeNode = combined && tabId === group.tree;
+        const paneRect = treeNode ? { x: rect.x + 1, y: rect.y + HEADER, width: Math.max(width, 1), height: Math.max(0, rect.height - HEADER - 1) } : rect;
+        if (!node.hasAttribute('data-dockkit-float')) {
+          const request = `${session}:${tabId}`;
+          if (!asked.has(request)) {
+            asked.add(request);
+            try { sidebar.float?.(tabId, paneRect); sessionFloats.add(tabId); }
+            catch (error) { asked.delete(request); report(error); }
+          }
+          continue;
+        }
+        asked.delete(`${session}:${tabId}`);
+        liveNodes.add(node);
+        place(node, group.id, paneRect);
+        if (paneRect.x === area.x && paneRect.y === area.y) setAttribute(node, LEADING, ''); else node.removeAttribute(LEADING);
+        const inactive = hiddenGroup || (embedded && tabId === group.tree) || (treeNode && treeHidden) || (group.tree !== undefined && tabId !== group.tree && tabId !== group.preview) || (group.terminal !== undefined && tabId !== group.terminal) || (group.browser !== undefined && tabId !== group.browser);
+        if (inactive) setAttribute(node, INACTIVE, ''); else node.removeAttribute(INACTIVE);
+        if (treeNode) setAttribute(node, TREE, ''); else node.removeAttribute(TREE);
+        if (combined && tabId === group.preview) {
+          setAttribute(node, PREVIEW, '');
+          setProperty(node, TREE_WIDTH, `${width}px`);
+        } else { node.removeAttribute(PREVIEW); node.style.removeProperty(TREE_WIDTH); }
+        const filesRoot = node.querySelector<HTMLElement>('[data-files-root]');
+        if (filesRoot !== null) {
+          if (combined) setAttribute(filesRoot, JOINED, ''); else filesRoot.removeAttribute(JOINED);
+          if (compact) setAttribute(filesRoot, COMPACT, ''); else filesRoot.removeAttribute(COMPACT);
+          setProperty(filesRoot, TREE_WIDTH, `${width}px`);
+          owned.add(filesRoot);
+        }
+        /* Only the tab a group is showing carries chrome. Its siblings are
+           `display:none` behind it, and each one's chrome draws the whole
+           group's tab list, so mounting them all cost T cards × T tabs for a
+           single group; the node that becomes active mounts its own instead. */
+        if (!treeNode && !inactive) decorate(node, group, root, state, records);
+        else { controls.get(node)?.release(); controls.delete(node); }
+      }
+      if (!embedded && tree !== undefined && !compact && !treeHidden && !hiddenGroup && width > 0) {
+        boundaries.push({ key: 'files:tree', seam: { axis: 'column', column: 0, index: 0,
+          rect: { x: rect.x + width - GAP / 2, y: rect.y + HEADER, width: GAP, height: Math.max(0, rect.height - HEADER) } },
+          extent: rect.width, minimum: Math.min(0.4, 140 / rect.width), files: true, value: width / rect.width });
+      }
+      if (navigatorTop !== undefined && !compact && !hiddenGroup && width > 0) {
+        boundaries.push({ key: 'files:tree', seam: { axis: 'column', column: 0, index: 0,
+          rect: { x: rect.x + width - GAP / 2, y: navigatorTop, width: GAP, height: Math.max(0, rect.y + rect.height - navigatorTop) } },
+          extent: rect.width, minimum: Math.min(0.4, 140 / rect.width), files: true, value: width / rect.width });
+      }
+    }
+    for (const node of [...owned]) {
+      if (node.matches('[data-files-root]')) {
+        if (!node.isConnected || ![...liveNodes].some(pane => pane.contains(node))) clearNode(node);
+      } else if (!liveNodes.has(node)) clearNode(node);
+    }
+    setAttribute(root, PANES_ATTRIBUTE, String(groups.length));
+    placeSeams(root, boundaries);
+    placement = { root, session, boundaries };
+  };
+
+  /** A service commit can notify synchronously from float(). Drain that work
+   * after the current pass, and ignore our own marker/style mutations. */
+  const schedule = () => {
+    if (disposed) return;
+    if (syncing) {
+      if (!queued) {
+        queued = true;
+        queueMicrotask(() => { queued = false; schedule(); });
+      }
+      return;
+    }
+    syncing = true;
+    try { sync(); } catch (error) { report(error); } finally { syncing = false; }
+  };
+
+  const boundaryUnder = (target: EventTarget | null): Boundary | undefined => {
+    const node = target instanceof Element ? target.closest(`[${SEAM_ATTRIBUTE}]`) : null;
+    return placement?.boundaries.find(boundary => boundary.key === node?.getAttribute(SEAM_ATTRIBUTE));
+  };
+  const moveBoundary = (state: SessionState, boundary: Boundary, fraction: number, layout: PaneLayout, fileShare: number) => {
+    if (boundary.files) state.fileShare = Math.min(1 - boundary.minimum, Math.max(boundary.minimum, fileShare + fraction));
+    else state.layout = resizePanes(layout, boundary.seam, fraction, boundary.minimum);
+    schedule();
+  };
+  const onPointerMove = (event: PointerEvent) => {
+    const held = dragging;
+    if (held === null || held.pointer !== event.pointerId || held.boundary.extent <= 0) return;
+    const coordinate = held.boundary.seam.axis === 'row' ? event.clientY : event.clientX;
+    moveBoundary(stateOf(held.placement.session), held.boundary, (coordinate - held.origin) / held.boundary.extent, held.layout, held.fileShare);
+  };
+  const finishPointer = (event: PointerEvent) => { if (dragging?.pointer === event.pointerId) endDrag(); };
+  const onHeaderClick = (event: MouseEvent) => {
+    const button = event.target instanceof Element ? event.target.closest('[data-ccd-header-view][aria-pressed="true"]') : null;
+    if (button === null) return;
+    const panel = panelOnScreen();
+    const kind = button.getAttribute('data-ccd-header-view');
+    const nodes = panel?.querySelectorAll<HTMLElement>('[data-ccd-pane-chrome]:not([data-ccd-pane-inactive])') ?? [];
+    const pane = [...nodes].find(node => node.getAttribute('data-ccd-pane-kind') === kind
+      || (kind === 'files' && node.querySelector('[data-ccd-files-switch]') !== null));
+    const close = pane?.querySelector<HTMLButtonElement>('[data-dockkit-float-close]');
+    if (!close) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    close.click();
+  };
+  const onPointerDown = (event: PointerEvent) => {
+    if (event.button !== 0) return;
+    if (event.target instanceof Element && event.target.closest('[data-ccd-files-switch]')) return;
+    const boundary = boundaryUnder(event.target);
+    if (boundary !== undefined && placement !== null) {
+      event.preventDefault(); event.stopPropagation(); endDrag();
+      const state = stateOf(placement.session);
+      const controller = new AbortController();
+      dragging = { boundary, placement, pointer: event.pointerId, origin: boundary.seam.axis === 'row' ? event.clientY : event.clientX,
+        layout: state.layout, fileShare: state.fileShare, controller };
+      placement.root.setAttribute(DRAGGING_ATTRIBUTE, '');
+      const target = event.target instanceof Element ? event.target.closest<HTMLElement>(`[${SEAM_ATTRIBUTE}]`) : null;
+      try { target?.setPointerCapture(event.pointerId); } catch { /* Synthetic pointers cannot be captured. */ }
+      window.addEventListener('pointermove', onPointerMove, { signal: controller.signal });
+      window.addEventListener('pointerup', finishPointer, { signal: controller.signal });
+      window.addEventListener('pointercancel', finishPointer, { signal: controller.signal });
+      window.addEventListener('blur', endDrag, { signal: controller.signal });
+      return;
+    }
+    if (!(event.target instanceof Element) || event.target.closest('button, input, select, a') !== null) return;
+    if (event.target.closest(host.dockFloatGrip)?.closest(`[${PANE_ATTRIBUTE}]`) !== null
+      && event.target.closest(host.dockFloatGrip) !== null) {
+      event.preventDefault(); event.stopPropagation();
+    }
+  };
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.target instanceof Element && event.target.closest('[data-ccd-pane-menu], [data-ccd-browser-toolbar]')) return;
+    if (event.target instanceof Element && event.target.closest('[data-ccd-files-switch]')) return;
+    const boundary = boundaryUnder(event.target);
+    if (boundary !== undefined && placement !== null) {
+      const row = boundary.seam.axis === 'row';
+      const direction = event.key === (row ? 'ArrowDown' : 'ArrowRight') ? 1 : event.key === (row ? 'ArrowUp' : 'ArrowLeft') ? -1 : 0;
+      if (direction === 0 && event.key !== 'Home' && event.key !== 'End') return;
+      event.preventDefault(); event.stopPropagation();
+      const state = stateOf(placement.session);
+      const delta = event.key === 'Home' ? -1 : event.key === 'End' ? 1 : direction * (event.shiftKey ? 8 : 24) / boundary.extent;
+      moveBoundary(state, boundary, delta, state.layout, state.fileShare);
+    } else if (event.key === 'Escape' && placement !== null && stateOf(placement.session).maximized !== null
+      && (!(event.target instanceof Element) || event.target.closest('input, textarea, select, [contenteditable]') === null)) {
+      event.preventDefault(); event.stopPropagation();
+      stateOf(placement.session).maximized = null;
+      schedule();
+    }
+  };
+
+  const release = () => {
+    if (disposed) return;
+    disposed = true;
+    observer?.disconnect(); resize?.disconnect(); unsubscribe();
+    document.removeEventListener('pointerdown', onPointerDown, true);
+    document.removeEventListener('click', onHeaderClick, true);
+    document.removeEventListener('keydown', onKeyDown, true);
+    window.removeEventListener('resize', schedule);
+    const panel = panelOnScreen();
+    const session = panel === null ? null : sessionOf(panel);
+    clear();
+    for (const button of document.querySelectorAll('[data-ccd-header-view]')) button.removeAttribute('aria-pressed');
+    for (const node of document.querySelectorAll(`[${CLOSING}]`)) node.removeAttribute(CLOSING);
+    // dock() addresses the on-screen session. Never send another session's ids.
+    if (panel !== null && session !== null) {
+      for (const tab of floated.get(session) ?? []) {
+        const node = [...panel.querySelectorAll<HTMLElement>(host.dockFloat)].find(node => node.getAttribute('data-dockkit-content') === tab);
+        const paneId = node?.getAttribute('data-dockkit-float');
+        if (paneId) { try { sidebar.dock?.(paneId); } catch (error) { report(error); } }
+      }
+    }
+  };
+  try {
+    observer = new MutationObserver(mutations => {
+      const relevant = mutations.some(mutation => {
+        /* `<html lang>` sits outside the body and is not the panel's business
+           except for one thing: the words the panel writes are read from it. */
+        if (mutation.type === 'attributes' && mutation.attributeName === 'lang'
+          && mutation.target === document.documentElement) return true;
+        const target = mutation.target instanceof Element ? mutation.target : mutation.target.parentElement;
+        if (target === null) return false;
+        if (mutation.type === 'attributes' && (mutation.attributeName === 'data-rightbar-collapsed'
+          || mutation.attributeName === 'data-conversation-session')) return true;
+        if (mutation.type === 'childList' && [...mutation.addedNodes].some(node => node instanceof Element
+          && (node.matches('[data-ccd-header-view]') || node.querySelector('[data-ccd-header-view]') !== null))) return true;
+        if (mutation.type === 'attributes' && mutation.attributeName === 'hidden') return target.matches(host.rightbarSession);
+        if (target.closest(host.rightbarPanel) !== null) {
+          if (target.matches('[data-files-navigator-toggle]')) return true;
+          if (mutation.type === 'childList' && [...mutation.addedNodes, ...mutation.removedNodes].some(node =>
+            node instanceof Element && (node.matches('[data-files-navigator]') || node.querySelector('[data-files-navigator]')))) return true;
+          if (target.closest(host.dockFloatGrip) !== null) return true;
+          const body = target.closest(host.dockContent);
+          return body === null || body === target || (mutation.type === 'attributes' && mutation.attributeName === 'data-ccd-files-tree');
+        }
+        // Replacement/removal of the panel itself is a mutation on its parent.
+        return [...mutation.addedNodes, ...mutation.removedNodes].some(node => node instanceof Element
+          && (node.matches(`${host.rightbarPanel}, ${host.rightbarSession}`) || node.querySelector(host.rightbarPanel) !== null));
+      });
+      if (relevant) schedule();
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true,
+      attributeFilter: ['aria-expanded', 'hidden', 'data-conversation-session', 'data-rightbar-collapsed', 'data-sidebar-right-open', 'data-sidebar-right-panel', 'data-sidebar-right-session',
+        'data-dockkit-content', 'data-dockkit-float', 'data-dockkit-float-active', 'data-dockkit-pane', 'data-dockkit-host', 'data-ccd-files-tree'] });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+    if (typeof ResizeObserver === 'function') resize = new ResizeObserver(schedule);
+    unsubscribe = sidebar.openTabs?.subscribe?.(schedule) ?? (() => {});
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('click', onHeaderClick, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('resize', schedule);
+    schedule();
+  } catch (error) { release(); report(error); }
+  return release;
+}

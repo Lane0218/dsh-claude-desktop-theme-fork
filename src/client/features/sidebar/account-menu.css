@@ -1,0 +1,618 @@
+/*
+ * Signed-in account menu.
+ *
+ * The reference draws the card the sidebar's account row opens as a wide menu
+ * whose first block is the account itself. The compat layer tags the open menu
+ * (`compat/account-menu.ts`) and mirrors the signed-in name onto it, so these
+ * rules reshape the host's rows and the plugin's More submenu.
+ *
+ * Menu surfaces and rows come from ui-primitives `Menu.module.css`; the tag is
+ * the plugin's own. Sources are pinned in src/client/compat/host-dom.ts.
+ */
+/* The foot row is a hit target, not a panel: the reference's fill is a slim bar,
+   so the row is as short as the avatar allows and stays pinned to the window's
+   bottom edge. */
+html[data-dsh-ccd-style="true"] .ZogL4G_trigger,
+html[data-dsh-ccd-style="true"] .Dws9Sa_trigger {
+  height: var(--ccd-account-trigger-height);
+  padding: 0 6px;
+  border-radius: var(--ccd-radius-row);
+}
+
+html[data-dsh-ccd-style="true"] .ZogL4G_trigger[data-collapsed="true"] {
+  height: var(--ccd-account-trigger-height);
+}
+
+/* Match the reference's compact identity: 20px avatar, 13px name and a 6px
+   gap. Keep the collapsed rail's own avatar geometry. */
+html[data-dsh-ccd-style="true"] .ZogL4G_trigger:not([data-collapsed="true"]) {
+  gap: 6px;
+  color: var(--ccd-text-secondary);
+  font-size: var(--ccd-font-size-muted);
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] .ZogL4G_trigger:not([data-collapsed="true"]) .ZogL4G_avatar {
+  width: 20px;
+  height: 20px;
+}
+
+/* Keep the feedback action outside the host's account button. */
+html[data-dsh-ccd-style="true"] :has(> [data-ccd-plugin-feedback]) {
+  position: relative;
+}
+
+html[data-dsh-ccd-style="true"] .ZogL4G_trigger:not([data-collapsed="true"]):has(+ [data-ccd-plugin-feedback]) {
+  width: fit-content;
+  max-width: calc(100% - 38px);
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-end: auto;
+}
+
+html[data-dsh-ccd-style="true"] .ZogL4G_trigger:not([data-collapsed="true"]):has(+ [data-ccd-plugin-feedback]) .ZogL4G_label {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+html[data-dsh-ccd-style="true"] .ZogL4G_trigger:not([data-collapsed="true"]):has(+ [data-ccd-plugin-feedback])::after {
+  margin-inline-start: 8px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback] {
+  position: absolute;
+  inset-inline-end: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ccd-radius-row);
+  background: transparent;
+  color: var(--ccd-text-muted);
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback] svg {
+  width: 16px;
+  height: 16px;
+  opacity: 0.65;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback]:hover {
+  color: var(--ccd-text);
+  background: var(--ccd-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback]:focus-visible {
+  outline: 1px solid var(--ccd-text-muted);
+  outline-offset: 1px;
+}
+
+html[data-dsh-ccd-style="true"] [data-collapsed="true"] + [data-ccd-plugin-feedback] {
+  display: none;
+}
+
+/* The expanded launcher ends in the reference's small downward chevron,
+   including while its menu is open. Keep a fixed icon seat after the label so
+   long names ellipsize before it; the collapsed rail only shows the avatar. */
+html[data-dsh-ccd-style="true"] .ZogL4G_trigger:not([data-collapsed="true"])::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  flex: none;
+  margin-inline-start: auto;
+  background: var(--ccd-text-muted);
+  mask: var(--ccd-icon-chevron-right) center / 12px 12px no-repeat;
+  transform: rotate(90deg);
+  pointer-events: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-menu] {
+  box-sizing: border-box;
+  left: var(--ccd-account-menu-left) !important;
+  right: auto !important;
+  width: var(--ccd-account-menu-width);
+  min-width: var(--ccd-account-menu-width);
+  max-width: var(--ccd-account-menu-width);
+  padding: var(--ccd-account-menu-padding);
+  border-radius: var(--ccd-radius-panel);
+}
+
+/* The account header the reference shows above the rows.
+ *
+ * The name sits on the row icon's own left edge rather than on the rows' text
+ * edge: the card's first column is the icon seat, and both the row icons and
+ * this line start it. A row starts its content at its own padding, a fixed
+ * distance from the card edge (the `padding: 0 10px` on the row rule below,
+ * which the card's own padding sits outside of), so the header takes that same
+ * inline padding and the two left edges stay one line. The vertical padding is
+ * deliberately left alone: the name's top and bottom whitespace and the card's
+ * height depend on it, and the alignment is horizontal.
+ *
+ * The property holds one *quoted* CSS string token (`compat/account-menu.ts`
+ * `accountNameToken`), and the fallback is a quoted string for the same reason:
+ * `content` takes no bare word, and a value that is not one `<string>` is
+ * invalid at computed-value time, which computes to `none` on `::before` and
+ * drops this whole line — padding included. */
+html[data-dsh-ccd-style="true"] [data-ccd-account-menu]::before {
+  content: var(--ccd-account-name, "");
+  display: block;
+  padding: 4px 10px 8px;
+  color: var(--ccd-text-muted);
+  font-size: var(--ccd-font-size-muted);
+  font-weight: 400;
+  line-height: 18px;
+  /* The header is painted content, not an element the host lays text into, so
+     the trigger's own ellipsis never reaches it: without these the name runs
+     out of the card and the window edge cuts it. Keep it on the header's one
+     line and let the long end ellipsize, as the trigger's own label does. */
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-menu] [role="menuitem"] {
+  min-height: var(--ccd-account-row-height);
+  padding: 0 10px;
+  border-radius: var(--ccd-radius-row);
+  color: var(--ccd-text);
+  font-size: var(--ccd-font-size-muted);
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-menu] [role="menuitem"]:hover,
+html[data-dsh-ccd-style="true"] [data-ccd-account-menu] [role="menuitem"]:focus-visible {
+  background: var(--ccd-hover);
+}
+
+/* Row cells are wrapped by the primitive; the last group reads as its own
+   block, which is where the reference draws its final hairline. */
+html[data-dsh-ccd-style="true"] [data-ccd-account-menu] div:has(> [role="menuitem"]):last-child {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 0.5px solid var(--ccd-border-soft);
+}
+
+/* Sign out is the one row whose icon does not come from the product icon set:
+   ui-settings-account inlines it from a 14-unit artwork (`LogoutIcon`,
+   `viewBox="0 0 14 14"`, fill-only) that fills its whole canvas, while Settings
+   and Feedback are 16-unit artworks that the Menu primitive's icon seat scales
+   down to its 14px box (`ui-primitives/lib/Menu.js` `MenuItemButton`, whose
+   `.itemIcon svg` rule wins over the artwork's own width and height). Sign out
+   is therefore the only glyph drawn at full slot size: in a 2x capture it inks
+   13.5px against 12 and 10 for its neighbours, with a 1.4px wall against their
+   1.14px stroke. Scaling it by the same 14/16 the product icons already get
+   returns it to their size; the scale is taken about the svg's own box, so the
+   glyph keeps the slot's centre. */
+html[data-dsh-ccd-style="true"] [data-ccd-account-menu] [role="menuitem"] > span:first-child > span > svg {
+  transform: scale(0.875);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-balance] {
+  appearance: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  font-family: inherit;
+  font-weight: 400;
+  text-align: start;
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-balance] svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+/* Match the model pricing hint's surface, spacing and tabular rate columns. */
+html[data-dsh-ccd-style="true"] [data-ccd-balance-hint] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  z-index: 1001;
+  box-sizing: border-box;
+  width: min(276px, calc(100vw - 24px));
+  padding: 14px;
+  border: 1px solid var(--ccd-border);
+  border-radius: 12px;
+  background: var(--ccd-card);
+  color: var(--ccd-text-strong);
+  box-shadow: var(--ccd-effort-shadow);
+  text-align: left;
+  font: 12px/1.5 var(--ccd-font-ui);
+  cursor: default;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-balance-hint]::backdrop { background: transparent; pointer-events: none; }
+html[data-dsh-ccd-style="true"] [data-ccd-balance-hint][hidden],
+html[data-dsh-ccd-style="true"] [data-ccd-balance-hint] [hidden] { display: none; }
+html[data-dsh-ccd-style="true"] .ccd-balance-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+html[data-dsh-ccd-style="true"] .ccd-balance-heading > :last-child { color: var(--ccd-text-secondary); }
+html[data-dsh-ccd-style="true"] .ccd-balance-summary { margin: 5px 0 14px; white-space: pre-line; font-variant-numeric: tabular-nums; }
+html[data-dsh-ccd-style="true"] .ccd-balance-rates { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; margin: 0; }
+html[data-dsh-ccd-style="true"] .ccd-balance-rates dt { color: var(--ccd-text-secondary); }
+html[data-dsh-ccd-style="true"] .ccd-balance-rates dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+html[data-dsh-ccd-style="true"] .ccd-balance-funds { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ccd-border-soft); }
+html[data-dsh-ccd-style="true"] .ccd-balance-period-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--ccd-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+html[data-dsh-ccd-style="true"] .ccd-balance-period-row .ccd-balance-period { margin: 0; }
+html[data-dsh-ccd-style="true"] .ccd-balance-note {
+  margin: 8px 0 0;
+  color: var(--ccd-text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-balance-amount] {
+  margin-inline-start: auto;
+  color: var(--ccd-text);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+/* A quiet balance ledger anchored above the account separator. The slot is a
+   flex sibling of the footer, so it reserves real space above the scroll list. */
+html[data-dsh-ccd-style="true"] [data-ccd-balance-slot] {
+  flex: none;
+  min-width: 0;
+  padding: 2px 0 8px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-account-balance][data-ccd-balance-card] {
+  display: grid;
+  grid-template-columns: 14px auto minmax(0, 1fr);
+  gap: 4px 6px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: var(--ccd-radius-row);
+  color: var(--ccd-text-secondary);
+  font: 12px/18px var(--ccd-font-ui);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-balance-card]:hover {
+  background: var(--ccd-hover);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-balance-card]:focus-visible {
+  outline: 1px solid var(--ccd-text-muted);
+  outline-offset: -1px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-balance-card] > svg {
+  width: 14px;
+  height: 14px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-balance-card] > span:first-of-type {
+  white-space: nowrap;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-balance-card] [data-ccd-balance-amount] {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ccd-text);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 22px;
+  letter-spacing: 0;
+  text-align: end;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-balance-card][data-balance-state="unavailable"] [data-ccd-balance-amount] {
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 0;
+  color: var(--ccd-text-secondary);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-balance-details] {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px 8px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-balance-details] .ccd-balance-period { margin: 0; }
+html[data-dsh-ccd-style="true"] [data-ccd-balance-details][hidden] { display: none; }
+/* Same hue pair as the model picker's peak marks, as a tinted pill. */
+html[data-dsh-ccd-style="true"] .ccd-balance-period {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  margin-inline-start: auto;
+  padding: 0 5px 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: var(--ccd-price-off-peak);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+html[data-dsh-ccd-style="true"] .ccd-balance-period[data-peak="true"] { color: var(--ccd-price-peak); }
+html[data-dsh-ccd-style="true"] .ccd-balance-period > svg { flex: none; width: 12px; height: 9px; }
+html[data-dsh-ccd-style="true"] .ccd-balance-period > span {
+  margin-inline-start: 1px;
+  font-weight: 400;
+  opacity: .8;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more] {
+  display: flex;
+  align-items: center;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more] > [data-ccd-account-more-original] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more] > span[aria-hidden]:not([data-ccd-account-more-original]),
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] span[aria-hidden] {
+  display: flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more] svg,
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Signed-out rows use 16px icons and an 8px gap. The replacement icon is
+   after the hidden native cells, so the host's first-child rule misses it. */
+html[data-dsh-ccd-style="true"] .ZogL4G_signedOutMenu [data-ccd-account-more] > span[aria-hidden]:not([data-ccd-account-more-chevron]),
+html[data-dsh-ccd-style="true"] .ZogL4G_signedOutMenu [data-ccd-account-more] > span[aria-hidden]:not([data-ccd-account-more-chevron]) svg {
+  width: 16px;
+  height: 16px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-chevron] {
+  margin-inline-start: auto;
+  color: var(--ccd-text-muted);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more][aria-expanded="true"] {
+  background: var(--ccd-hover);
+}
+
+/* The top layer keeps the flyout clear of the native menu's scroll viewport. */
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  width: var(--ccd-account-menu-width);
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--ccd-account-menu-padding);
+  border: 1px solid var(--ccd-border);
+  border-radius: var(--ccd-radius-panel);
+  background: var(--ccd-card);
+  color: var(--ccd-text);
+  box-shadow: var(--ccd-effort-shadow);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu][hidden] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-weight: 400;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* Signed-out host menus size the first span of every descendant menu row as
+   a 16px icon. Our flyout starts link rows with text instead; give that label
+   its own flexible seat so it cannot wrap and overlap the following rows. */
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] > button[role="menuitem"] > span:not([aria-hidden]) {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  height: auto;
+  color: inherit;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] > [role="separator"] {
+  height: 1px;
+  margin: 4px 10px;
+  background: var(--ccd-border-soft);
+}
+
+/* With theme controls available, the name and controls share one header. */
+html[data-dsh-ccd-style="true"] [data-ccd-account-menu]:has([data-ccd-account-theme])::before {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-theme] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 10px 8px;
+  color: var(--ccd-text-muted);
+  font-size: var(--ccd-font-size-muted);
+  line-height: 18px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-theme]::before {
+  content: var(--ccd-account-name, "");
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-theme] > [role="group"] {
+  display: inline-flex;
+  flex: none;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--ccd-radius-row);
+  background: var(--ccd-track);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-theme] button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ccd-radius-row);
+  color: var(--ccd-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-theme] button:hover {
+  color: var(--ccd-text);
+  background: var(--ccd-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-theme] button[aria-checked="true"] {
+  border-color: var(--ccd-border-soft);
+  color: var(--ccd-text);
+  background: var(--ccd-card);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-theme] button:focus-visible {
+  outline: 1px solid var(--ccd-text-muted);
+  outline-offset: 1px;
+}
+
+/* Plugin feedback sheet, drawn after the host's own "send feedback" dialog. */
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] {
+  box-sizing: border-box;
+  width: min(400px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--ccd-border);
+  border-radius: 10px;
+  background: var(--ccd-card);
+  color: var(--ccd-text);
+  box-shadow: var(--ccd-view-menu-shadow);
+  font: 13px/20px var(--ccd-font-ui);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog]::backdrop {
+  background: var(--ccd-dialog-mask);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] textarea {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  height: 84px;
+  /* Vertical resize stays between three lines and a viewport-bound maximum. */
+  min-height: 64px;
+  max-height: min(320px, 50vh);
+  padding: 6px 8px;
+  border: 1px solid var(--ccd-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+  outline: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] textarea::placeholder {
+  color: var(--ccd-text-muted);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] textarea:focus {
+  border-color: var(--ccd-accent);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] p {
+  margin: 8px 0 14px;
+  color: var(--ccd-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] button {
+  padding: 3px 10px;
+  border: 1px solid var(--ccd-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] button:not([data-ccd-primary]):hover {
+  background: var(--ccd-hover);
+}
+
+/* Send matches the plugin's red confirmation action (`theme/dialogs.css`). */
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] [data-ccd-primary] {
+  border-color: var(--ccd-dialog-danger);
+  background: var(--ccd-dialog-danger);
+  color: var(--ccd-menu-danger-ink);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] [data-ccd-primary]:hover {
+  border-color: var(--ccd-dialog-danger-hover);
+  background: var(--ccd-dialog-danger-hover);
+}
+
+/* Same focus-only ring as the shared Modal footer buttons. */
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ccd-card), 0 0 0 3px var(--ccd-dialog-focus-ring);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plugin-feedback-dialog] [data-ccd-primary]:focus-visible {
+  box-shadow: 0 0 0 2px var(--ccd-card), 0 0 0 3px var(--ccd-dialog-danger-ring), var(--ccd-dialog-danger-glow);
+}

@@ -1,0 +1,76 @@
+/* One native scrollbar painter for the whole themed window. No floating
+   replacement, cropped thumb, or end padding: native geometry maps the full
+   content range to the full track, including both endpoints. Keep intentionally
+   hidden host rails hidden by resetting standard properties only on known
+   scrolling surfaces, never on every element in the document. */
+html[data-dsh-ccd-style="true"] :is(
+  [data-conversation-scroll], .icaHSq_scroll, ._7514NG_list,
+  [data-files-body], ._2tNPVa_body, .yhfFVG_scroll,
+  .Dws9Sa_options, .Dws9Sa_navList, [data-menu-material],
+  [class^="ccd-"], [class*=" ccd-"]
+),
+html[data-dsh-ccd-style="true"] :is(
+  .icaHSq_scroll, [data-menu-material], .ccd-model-panel, .ccd-model-error,
+  .ccd-effort, [data-chat-flow-kind="tool-call"], [data-variant="think"]
+) * {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+  --dsh-scrollbar-thumb: var(--ccd-scrollbar-thumb);
+  --dsh-scrollbar-thumb-hover: var(--ccd-scrollbar-thumb-hover);
+}
+
+/* Important geometry beats the host's individually styled code blocks and
+   settings panes. Hidden rails still keep scrollbar-width:none/display:none. */
+html[data-dsh-ccd-style="true"] *::-webkit-scrollbar {
+  width: 6px !important;
+  height: 6px !important;
+}
+
+html[data-dsh-ccd-style="true"] *::-webkit-scrollbar-track,
+html[data-dsh-ccd-style="true"] *::-webkit-scrollbar-track-piece {
+  margin: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-dsh-ccd-style="true"] *::-webkit-scrollbar-thumb {
+  min-width: 24px !important;
+  min-height: 24px !important;
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  background-clip: content-box !important;
+  box-shadow: none !important;
+}
+
+/* Only inset across the track. Insets along the scroll axis cut off the caps
+   and make short thumbs square while moving their visible ends off the track. */
+html[data-dsh-ccd-style="true"] *::-webkit-scrollbar-thumb:vertical {
+  border-top-width: 0 !important;
+  border-bottom-width: 0 !important;
+}
+
+html[data-dsh-ccd-style="true"] *::-webkit-scrollbar-thumb:horizontal {
+  border-left-width: 0 !important;
+  border-right-width: 0 !important;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-scrolling]::-webkit-scrollbar-thumb {
+  background-color: var(--ccd-scrollbar-thumb) !important;
+}
+
+html[data-dsh-ccd-style="true"] *::-webkit-scrollbar-thumb:hover,
+html[data-dsh-ccd-style="true"] *::-webkit-scrollbar-thumb:active {
+  background-color: var(--ccd-scrollbar-thumb-hover) !important;
+}
+
+html[data-dsh-ccd-style="true"] *::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+
+html[data-dsh-ccd-style="true"] *::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}

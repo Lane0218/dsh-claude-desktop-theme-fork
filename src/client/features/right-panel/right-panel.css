@@ -1,0 +1,1402 @@
+/*
+ * The right panel's interior: the card's header line, the split hairline and
+ * the Files tree (DESIGN.md §6.9).
+ *
+ * The card itself — its inset, surface, outline and shadow — is in `frame.css`,
+ * which owns the panel's card geometry; this sheet dresses what the panel draws
+ * inside it. Everything here speaks the DockKit and Files packages' own stable
+ * data hooks rather than their hashed class names (`compat/host-dom.ts` pins
+ * each one), and every number is measured off the reference at @2x: its Files
+ * crop, with its terminal and browser crops for the shared header row (DESIGN.md
+ * §6.9).
+ *
+ * The host keeps the structure, the controls, the handlers and their copy. This
+ * sheet changes what a box looks like: the strip's line, the tab's own mark,
+ * the row pitch of the tree, its two file marks, its disclosure chevrons, and
+ * the pane's header line — where the reference draws a filter field over the
+ * tree, the tab mark is a list on its tinted square, the strip's controls run on
+ * a 26px pitch in the pane's own near-black, and a column no tab has claimed
+ * carries the landing state. The four things the host has no node for — that
+ * field, the tree's show / hide control, the tab's mark and the landing state —
+ * are supplied by `compat/files-pane.ts`, which owns their markup, their copy
+ * and their behaviour; this sheet only states them.
+ */
+
+/* The card's header line. The reference's strip is 32px tall with its first box
+   (the tab's 24px mark) 4px from the card's top and left edges. The host's
+   inline-start variable is what keeps the strip clear of the macOS traffic
+   lights in the full-screen state, so the reference's 4px is taken out of it
+   rather than stated over it. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip] {
+  box-sizing: border-box;
+  height: var(--ccd-right-panel-strip-height);
+  padding-block: 4px;
+  padding-inline: calc(var(--dsh-dockkit-strip-inline-start, 10px) - 6px) 8px;
+}
+
+/* The panel's tabs are the card's title, not chips on a filled rail: the host
+   paints the active tab with its own tag token and pads the chip 10px, while
+   the reference draws the title straight on the card with its mark leading the
+   row, its own ink one step under this palette's body text. Hover keeps a fill
+   so the chip still answers the pointer. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-tab] {
+  background: none;
+  padding-inline: 0;
+  color: var(--ccd-right-panel-tab-ink);
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-tab]:hover {
+  background: var(--ccd-hover);
+}
+
+/* The mark the reference puts before a tab's title: a 24px tinted square with
+   the tab's own glyph in it, which the other tabs in this panel keep — those
+   draw one ink over their own artwork. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-tab-title] > svg {
+  box-sizing: border-box;
+  width: var(--ccd-right-panel-glyph-size);
+  height: var(--ccd-right-panel-glyph-size);
+  padding: 4px;
+  border-radius: var(--ccd-chip-radius);
+  background: var(--ccd-right-panel-glyph-bg);
+  color: var(--ccd-accent);
+}
+
+/* The Files tab's square is the same one, but its artwork is a three-row list
+   in the reference's deeper blue — and the host's own glyph, a folder in its
+   category colours, cannot be that mark, because a mask over it would clip the
+   square with the glyph. So its seat is taken by a plugin node
+   (`compat/files-pane.ts` marks the tab and inserts it): the square is that
+   node's background and the ink a masked pseudo-element. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-tab] [data-dockkit-tab-title] svg {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-mark] {
+  box-sizing: border-box;
+  flex: none;
+  width: var(--ccd-right-panel-glyph-size);
+  height: var(--ccd-right-panel-glyph-size);
+  border-radius: var(--ccd-chip-radius);
+  background: var(--ccd-right-panel-glyph-bg);
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-mark]::before {
+  content: "";
+  display: block;
+  width: var(--ccd-right-panel-glyph-size);
+  height: var(--ccd-right-panel-glyph-size);
+  color: var(--ccd-files-chip-ink);
+  background-color: currentColor;
+  mask: var(--ccd-icon-files-list) center / var(--ccd-right-panel-glyph-size) var(--ccd-right-panel-glyph-size) no-repeat;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-switch][aria-expanded="false"] {
+  background: transparent;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-switch][aria-expanded="false"]::before {
+  color: var(--ccd-right-panel-tab-ink);
+}
+
+/* The strip's controls: the reference draws five 26px seats that touch, each
+   with about 12px of ink in it, so the host's own boxes shrink to that pitch —
+   the split control, the fullscreen / collapse chrome and the add-tab control
+   the pane's own strip draws. The ink is the pane's near-black rather than the
+   host's secondary grey, and the hover step stays this palette's. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip] {
+  gap: 0;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip-chrome] {
+  gap: 0;
+  margin-left: 0;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip] [data-dockkit-split-button],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip] [data-dockkit-add-tab],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip] [data-dockkit-strip-chrome] button {
+  width: 26px;
+  height: 26px;
+  color: var(--ccd-files-ink);
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip] [data-dockkit-split-button] svg,
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip] [data-dockkit-add-tab] svg,
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip] [data-dockkit-strip-chrome] button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* The strip's own controls answer with this palette's hover step, as the
+   Composer's row controls do, instead of the host's blue-grey one. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip] button:hover {
+  background: var(--ccd-hover);
+}
+
+/* The hairline between two columns. The reference draws it from under the
+   header line down (its first pixel at the card's 32px strip), one step softer
+   than the card's own outline. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-divider]::before {
+  top: var(--ccd-right-panel-strip-height);
+  background: var(--ccd-border);
+}
+
+/* --- the Files pane ------------------------------------------------------ */
+
+/* The pane's header is the reference's one-line filter row: 32px tall, with the
+   26px field inside it starting 8px in from the card's edge, and no rule under
+   it — the tree's first row sits 28px below the field, and that band is empty
+   in the reference. The host's own root path is not drawn: the filter field
+   takes its seat, while its reload and open-in-app controls keep theirs at the
+   row's end. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-root] > [data-ccd-files-header] {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: var(--ccd-right-panel-strip-height);
+  margin: 0;
+  padding: 0 var(--ccd-right-panel-gutter);
+  gap: 4px;
+  border-bottom: 0;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-root] > [data-ccd-files-header] > [data-files-path] {
+  display: none;
+}
+
+/* The header's own controls sit at its end: the host lays the path label and the
+   reload / open-in-app actions out left to right, and the reference's row leads
+   with its field and trails its affordances. The plugin's own two controls lead
+   the row instead, so they are kept out of this seat. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-root] > [data-ccd-files-header] > :last-child:not([data-ccd-files-filter]):not([data-ccd-files-toggle]) {
+  margin-left: auto;
+}
+
+/* The tree's show / hide control: the one seat the reference puts at the pane's
+   leading edge, borrowed from the shared disclosure chevron — turned to face the
+   tree while it is drawn, and back away from it once it is put away. The
+   reference's own pane hides the tree from a control on the divider between its
+   two columns; this pane has no second column, so the control lives in the
+   header line where the reference's own leading seat is. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-toggle] {
+  box-sizing: border-box;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ccd-chip-radius);
+  background: none;
+  color: var(--ccd-text-muted);
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-toggle]:hover {
+  background: var(--ccd-hover);
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-toggle]::before {
+  content: "";
+  width: var(--ccd-files-glyph-size);
+  height: var(--ccd-files-glyph-size);
+  color: inherit;
+  background-color: currentColor;
+  mask: var(--ccd-icon-chevron-right) center / var(--ccd-files-glyph-size) var(--ccd-files-glyph-size) no-repeat;
+  transform: rotate(180deg);
+  transition: transform 0.15s var(--ds-ease-in-out, ease-in-out);
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-root][data-ccd-files-tree="hidden"] [data-ccd-files-toggle]::before {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-toggle]::before {
+    transition: none;
+  }
+}
+
+/* The filter field: the reference's own 26px rounded box, a hairline outline and
+   the magnifier leading the words. It is the row's one interactive box, so the
+   reference's focused state — the accent's hairline and its soft halo — is what
+   it shows while the input holds focus. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-filter] {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--ccd-files-field-height);
+  padding: 0 var(--ccd-right-panel-gutter);
+  border: 1px solid var(--ccd-border);
+  border-radius: var(--ccd-radius-row);
+  background: var(--ccd-card);
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-filter]:focus-within {
+  border-color: var(--ccd-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ccd-accent) 11%, transparent);
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-filter]::before {
+  content: "";
+  flex: none;
+  width: var(--ccd-files-glyph-size);
+  height: var(--ccd-files-glyph-size);
+  color: var(--ccd-text-muted);
+  background-color: currentColor;
+  mask: var(--ccd-icon-search) center / var(--ccd-files-glyph-size) var(--ccd-files-glyph-size) no-repeat;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-filter] > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--ccd-files-ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-filter] > input::placeholder {
+  color: var(--ccd-text-placeholder);
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-clear] {
+  box-sizing: border-box;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ccd-files-glyph-size);
+  height: var(--ccd-files-glyph-size);
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--ccd-text-muted);
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-clear]:hover {
+  color: var(--ccd-files-ink);
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-clear]::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  color: inherit;
+  background-color: currentColor;
+  mask: var(--ccd-icon-plus) center / 12px 12px no-repeat;
+  transform: rotate(45deg);
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-clear][hidden] {
+  display: none;
+}
+
+/* The tree. Rows run on the reference's 24px pitch (48 device px at @2x), and
+   the body's 8px side gutter is what puts the first row's mark 16px in from the
+   card's edge; the 28px above the first row is the reference's own band between
+   its field and its first entry. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-body] {
+  padding: 8px var(--ccd-right-panel-gutter) 8px;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-body] :is([data-files-entry] > button, [data-files-entry] > div > button),
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-body] :is([data-files-entry] > span, [data-files-entry] > div > span) {
+  box-sizing: border-box;
+  min-height: var(--ccd-files-row-height);
+  /* The reference puts the mark's box 3px into the row and the name 5px after
+     it, which lands the chevron's ink 17px and the name 33px in from the card's
+     edge — one position for a folder's chevron and a file's own mark alike. */
+  padding: 2px 8px 2px 3px;
+  gap: 5px;
+  border-radius: var(--ccd-chip-radius);
+  color: var(--ccd-files-ink);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-body] :is([data-files-entry] > button, [data-files-entry] > div > button):hover {
+  background: var(--ccd-hover);
+}
+
+/* A directory is its name and a disclosure mark: the host's folder glyph is
+   replaced by the shared chevron (the same geometry the sidebar's rows draw),
+   turned a quarter when the directory is open — the host's `aria-expanded` on
+   the row is the state, so the mark needs no observer. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) :is([data-files-entry="directory"] > button, [data-files-entry="directory"] > div > button) > svg {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) :is([data-files-entry="directory"] > button, [data-files-entry="directory"] > div > button)::before {
+  content: "";
+  flex: none;
+  width: var(--ccd-files-glyph-size);
+  height: var(--ccd-files-glyph-size);
+  color: var(--ccd-text-muted);
+  background-color: currentColor;
+  mask: var(--ccd-icon-chevron-right) center / var(--ccd-files-glyph-size) var(--ccd-files-glyph-size) no-repeat;
+  transition: transform 0.15s var(--ds-ease-in-out, ease-in-out);
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) :is([data-files-entry="directory"] > button, [data-files-entry="directory"] > div > button)[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) :is([data-files-entry="directory"] > button, [data-files-entry="directory"] > div > button)::before {
+    transition: none;
+  }
+}
+
+/* A file keeps neither the host's category artwork nor its colours. The
+   reference draws one of two marks in the muted ink — a page for prose and
+   configuration-free files, an angle-bracket pair for code — and both are drawn
+   8–9px wide in the 16px seat the host's glyphs occupied, so the name after them
+   keeps its measured position. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) :is([data-files-entry="file"] > button, [data-files-entry="file"] > div > button) > svg {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) :is([data-files-entry="file"] > button, [data-files-entry="file"] > div > button)::before {
+  content: "";
+  flex: none;
+  width: var(--ccd-files-glyph-size);
+  height: var(--ccd-files-glyph-size);
+  color: var(--ccd-text-muted);
+  background-color: currentColor;
+  mask: var(--ccd-icon-file) center / var(--ccd-files-glyph-size) var(--ccd-files-glyph-size) no-repeat;
+}
+
+/* Which files are code is the reference's own split, read off its tree: prose
+   and licence files keep the page, everything with a programming or
+   configuration extension takes the brackets. The host's classifier is a
+   different set (it reads `.gitignore` as git, `LICENSE` as plain text), so the
+   list is stated here rather than inherited from the icon the host would draw. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-entry="file"]:is(
+  [data-files-path$=".c"], [data-files-path$=".cc"], [data-files-path$=".clj"],
+  [data-files-path$=".cpp"], [data-files-path$=".cs"], [data-files-path$=".css"],
+  [data-files-path$=".dart"], [data-files-path$=".ex"], [data-files-path$=".exs"],
+  [data-files-path$=".go"], [data-files-path$=".gradle"], [data-files-path$=".graphql"],
+  [data-files-path$=".h"], [data-files-path$=".hpp"], [data-files-path$=".hs"],
+  [data-files-path$=".html"], [data-files-path$=".ini"], [data-files-path$=".java"],
+  [data-files-path$=".js"], [data-files-path$=".json"], [data-files-path$=".json5"],
+  [data-files-path$=".jsonc"], [data-files-path$=".jsx"], [data-files-path$=".kt"],
+  [data-files-path$=".kts"], [data-files-path$=".less"], [data-files-path$=".lua"],
+  [data-files-path$=".mjs"], [data-files-path$=".ml"], [data-files-path$=".php"],
+  [data-files-path$=".pl"], [data-files-path$=".proto"], [data-files-path$=".ps1"],
+  [data-files-path$=".py"], [data-files-path$=".r"], [data-files-path$=".rb"],
+  [data-files-path$=".rs"], [data-files-path$=".sass"], [data-files-path$=".scala"],
+  [data-files-path$=".scss"], [data-files-path$=".sh"], [data-files-path$=".sql"],
+  [data-files-path$=".svelte"], [data-files-path$=".swift"], [data-files-path$=".tf"],
+  [data-files-path$=".toml"], [data-files-path$=".ts"], [data-files-path$=".tsx"],
+  [data-files-path$=".vue"], [data-files-path$=".wasm"], [data-files-path$=".xml"],
+  [data-files-path$=".yaml"], [data-files-path$=".yml"], [data-files-path$=".zig"],
+  [data-files-path$=".cjs"], [data-files-path$=".mts"], [data-files-path$=".cts"],
+  [data-files-path$="/Dockerfile"], [data-files-path$="/Makefile"]
+) :is([data-files-entry] > button, [data-files-entry] > div > button)::before {
+  mask-image: var(--ccd-icon-file-code);
+}
+
+/* The tree put away: the rows are not drawn and the pane keeps an affordance of
+   its own for bringing them back — a row of the same 24px pitch under the
+   header, its chevron facing the list it would open. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-root][data-ccd-files-tree="hidden"] [data-files-body] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-expand] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-root][data-ccd-files-tree="hidden"] [data-ccd-files-expand] {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: var(--ccd-files-row-height);
+  margin: 12px var(--ccd-right-panel-gutter) 0;
+  padding: 2px 8px 2px 3px;
+  border: 0;
+  border-radius: var(--ccd-chip-radius);
+  background: none;
+  color: var(--ccd-text-muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-expand]:hover {
+  background: var(--ccd-hover);
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-expand]::before {
+  content: "";
+  flex: none;
+  width: var(--ccd-files-glyph-size);
+  height: var(--ccd-files-glyph-size);
+  color: inherit;
+  background-color: currentColor;
+  mask: var(--ccd-icon-chevron-right) center / var(--ccd-files-glyph-size) var(--ccd-files-glyph-size) no-repeat;
+}
+
+/* A row the filter excludes is not drawn, and its descendants leave with it;
+   the line under the list answers for a query that matched nothing. */
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-files-body] [data-files-entry][data-ccd-files-hidden] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-nomatch] {
+  padding: 0 8px;
+  color: var(--ccd-text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-nomatch][hidden] {
+  display: none;
+}
+
+/* A column no tab has claimed is the reference's own landing state: a folder in
+   the muted ink, a line of the body ink and a line of guidance under it, all
+   centred in the column. The host's own one-line note keeps its seat in the
+   document but is not drawn; `compat/files-pane.ts` writes the block below. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-empty] [data-ccd-files-empty-source] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-empty] [data-ccd-files-empty] {
+  box-sizing: border-box;
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  text-align: center;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-empty-mark] {
+  width: 28px;
+  height: 28px;
+  color: var(--ccd-text-muted);
+  background-color: currentColor;
+  mask: var(--ccd-icon-folder) center / 28px 28px no-repeat;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-empty-title] {
+  margin: 12px 0 0;
+  color: var(--ccd-files-ink);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 19px;
+}
+
+html[data-dsh-ccd-style="true"] :is([data-sidebar-right-panel], [data-files-page]) [data-ccd-files-empty-body] {
+  margin: 4px 0 0;
+  color: var(--ccd-text-muted);
+  font-size: 12px;
+  line-height: 15px;
+}
+
+/* --- the panel's panes --------------------------------------------------- */
+
+/* Host floating leaves are arranged into session-owned columns. Each card
+   carries its title and controls; Files previews share one card with their tree.
+   The dock strip remains in place for forwarding native global actions. */
+
+/* A pane's own box: the four coordinates the tiler writes, claimed over the
+   rectangle the layout stored for the float (an inline style, which only
+   `!important` in an author sheet outranks), dressed as the card's siblings. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] {
+  box-sizing: border-box;
+  left: var(--ccd-pane-left) !important;
+  top: var(--ccd-pane-top) !important;
+  width: var(--ccd-pane-width) !important;
+  height: var(--ccd-pane-height) !important;
+  border: 1px solid var(--ccd-right-panel-border);
+  border-radius: var(--ccd-right-panel-radius);
+  background: var(--ccd-card);
+  box-shadow: var(--ccd-right-panel-shadow);
+}
+
+/* A pane's title row takes the panel's own strip geometry: the same 32px line,
+   the same tab ink. The float header is also the layout's move handle, and the
+   tiler retires that — the row is a title, so it keeps the default cursor. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-grip] {
+  box-sizing: border-box;
+  height: var(--ccd-right-panel-strip-height);
+  padding-block: 4px;
+  padding-inline: var(--ccd-right-panel-gutter);
+  gap: 0;
+  cursor: default;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-title] {
+  padding-inline: 0;
+  color: var(--ccd-right-panel-tab-ink);
+  font-size: 14px;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-title]:hover {
+  background: var(--ccd-hover);
+}
+
+/* The dock-back control has no place in a pane — every pane is already in the
+   panel — and the corner resize handle belongs to whoever owns the box, which is
+   the tiler. What stays is the close control, on the strip's own 26px seat. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-dock],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-resize] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-grip] button {
+  width: 26px;
+  height: 26px;
+  color: var(--ccd-files-ink);
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-grip] button svg {
+  width: 14px;
+  height: 14px;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-grip] button:hover {
+  background: var(--ccd-hover);
+}
+
+/* The panel's own column with panes on screen: no tab chips, no add / split
+   controls, and no body — the guide's landing page is the panel's, not a
+   pane's. Keep it covered through the deferred collapse and its transition. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel][data-ccd-panes-closing] [data-dockkit-pane],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel]:not([data-sidebar-right-open]) [data-dockkit-pane],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-panes] [data-dockkit-strip],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-panes] [data-dockkit-tab],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-panes] [data-dockkit-add-tab],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-panes] [data-dockkit-split-button],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-panes] [data-dockkit-pane] > div:nth-child(2) {
+  display: none;
+}
+
+/* A second dock column, and the hairline between two of them, belong to the
+   layout the panes replaced: every view is a pane, so a column nothing claims
+   is empty by construction. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-panes] [data-dockkit-empty],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-panes] [data-dockkit-divider] {
+  display: none;
+}
+
+/* The seam between two panes. The reference draws no line there — the gap is the
+   separation — so a seam is a bare hit band that carries the pointer's own
+   cursor; the panes either side are what the reader sees move. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane-seam] {
+  position: fixed;
+  z-index: calc(var(--dsh-dockkit-float-layer, 60) + 2);
+  pointer-events: auto;
+  left: var(--ccd-pane-left);
+  top: var(--ccd-pane-top);
+  width: var(--ccd-pane-width);
+  height: var(--ccd-pane-height);
+  touch-action: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane-seam][data-ccd-pane-axis="row"] {
+  cursor: row-resize;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane-seam][data-ccd-pane-axis="column"] {
+  cursor: col-resize;
+}
+
+/* A drag in flight owns the pointer: nothing under it keeps a hover fill while
+   the panes move beneath the cursor. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane-dragging] {
+  user-select: none;
+}
+
+/* A pane is `position: fixed`, so it does not slide away with the column the way
+   the layout's own boxes do: while the panel is put away, the panes and their
+   seams are not drawn at all. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel]:not([data-sidebar-right-open]) [data-ccd-pane],
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel]:not([data-sidebar-right-open]) [data-ccd-pane-seam] {
+  display: none;
+}
+
+/* The cards themselves carry their chrome. The surface is only their shared
+   geometry, so it contributes neither an extra card nor a blank header row. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel][data-sidebar-right-open] [data-dockkit-surface][data-ccd-panes] {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane][data-ccd-pane-inactive] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane-controls] {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 0;
+}
+
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane-seam]:focus-visible {
+  outline: 2px solid var(--ccd-accent);
+  outline-offset: -2px;
+}
+
+/* One Files card, host leaves in their original DOM positions: the active
+   preview supplies the card and title; the tree overlays the left body. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane-tree] {
+  z-index: calc(var(--dsh-dockkit-float-layer, 60) + 1);
+  border: 0;
+  border-right: 1px solid var(--ccd-border);
+  border-radius: 0 0 0 var(--ccd-right-panel-radius);
+  box-shadow: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane-tree] > :first-child {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane-preview] > :nth-child(2) {
+  padding-left: var(--ccd-files-tree-width);
+}
+
+/* DSH 0.2.2 embeds the Files navigator in the preview and, beside it, floats
+   it as a raised card on the trailing edge. Here it keeps the joined layout of
+   the separate tree: flush on the leading edge under the card's header, one
+   divider, no card of its own. The width comes from the plugin's seam
+   (`compat/right-panes.ts`), so the host's trailing-edge separator — whose
+   drag math assumes that edge — is hidden. The host's own small-window layout
+   (a full-card navigator below 768px) is left as it is. */
+@media (width >= 768px) {
+  html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-navigator]:is([data-files-navigator-mode="push"], [data-files-navigator-mode="overlay"]) {
+    order: -1;
+    width: var(--ccd-files-tree-width, var(--files-navigator-width));
+    height: auto;
+    margin: 0;
+    border: 0;
+    border-right: 1px solid var(--ccd-border);
+    border-radius: 0 0 0 var(--ccd-right-panel-radius);
+    background: var(--ccd-card);
+    box-shadow: none;
+  }
+
+  html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-navigator][data-files-navigator-mode="overlay"] {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+  }
+
+  html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-navigator]:is([data-files-navigator-mode="push"], [data-files-navigator-mode="overlay"]) > [data-files-navigator-resize] {
+    display: none;
+  }
+}
+
+/* The empty preview half remains part of Files even before a file is opened.
+   Restrict the grid to tiled leaves: native DockKit fixtures keep their layout. */
+html[data-dsh-ccd-style="true"] [data-ccd-files-landing] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane]:not([data-ccd-pane-tree]) [data-files-root]:not([data-files-navigator]):not([data-ccd-files-combined]) {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--ccd-files-tree-width, 34%) minmax(0, 1fr);
+  grid-template-rows: var(--ccd-right-panel-strip-height) minmax(0, 1fr);
+}
+
+/* One divider spans both grid rows, independent of the host body's margins. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane]:not([data-ccd-pane-tree]) [data-files-root]:not([data-files-navigator]):not([data-ccd-files-combined]):not([data-ccd-files-compact]):not([data-ccd-files-tree="hidden"])::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--ccd-files-tree-width, 34%);
+  width: 1px;
+  background: var(--ccd-border);
+  pointer-events: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane]:not([data-ccd-pane-tree]) [data-files-root]:not([data-files-navigator]) > [data-ccd-files-header] {
+  grid-column: 1;
+  grid-row: 1;
+  border-right: 0;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane]:not([data-ccd-pane-tree]) [data-files-root]:not([data-files-navigator]) > [data-files-body] {
+  grid-column: 1;
+  grid-row: 2;
+  border-right: 0;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane]:not([data-ccd-pane-tree]) [data-files-root]:not([data-files-navigator]):not([data-ccd-files-combined]) > [data-ccd-files-landing] {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1 / 3;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-root]:not([data-files-navigator])[data-ccd-files-tree="hidden"] > div:not([data-ccd-files-landing]),
+html[data-dsh-ccd-style="true"] [data-ccd-pane-tree] [data-ccd-files-landing] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-root]:not([data-files-navigator])[data-ccd-files-tree="hidden"] > [data-ccd-files-expand] {
+  grid-column: 1;
+  grid-row: 1;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  margin: 3px 0;
+  padding: 0;
+  justify-content: center;
+  font-size: 0;
+}
+
+html[data-dsh-ccd-style="true"][data-platform="darwin"]:not([data-fullscreen]) [data-sidebar-right-panel="fullscreen"] [data-ccd-pane-leading] [data-dockkit-float-grip] {
+  padding-inline-start: 88px;
+}
+
+/* DockKit gives each floating cell its own stacking context. Lift the tree's
+   cell as well as its leaf, otherwise the later preview cell covers the tree. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-host="float"]:has(> [data-ccd-pane-tree]) {
+  z-index: calc(var(--dsh-dockkit-float-layer, 60) + 1);
+}
+
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-title] {
+  min-width: 0;
+  max-width: none;
+  flex: 0 1 auto;
+}
+
+/* Plugin buttons do not carry a host CSS-module class, so reset the browser's
+   native button border before dressing them as the neighbouring host controls. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane-controls] > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ccd-chip-radius);
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Put the tree control on the card's title line. The filter uses the reclaimed
+   width; the original button remains the owner of the toggle action. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-ccd-files-toggle] {
+  display: none;
+}
+
+/* A narrow Files card prioritizes the list; an empty preview would leave both
+   halves too narrow to use. Widening/zooming the card reveals that empty half. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-root]:not([data-files-navigator])[data-ccd-files-compact]:not([data-ccd-files-tree="hidden"]) {
+  display: flex;
+  flex-direction: column;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-root]:not([data-files-navigator])[data-ccd-files-compact]:not([data-ccd-files-tree="hidden"]) > [data-ccd-files-landing] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-root]:not([data-files-navigator])[data-ccd-files-compact] > [data-files-body],
+html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-root]:not([data-files-navigator])[data-ccd-files-compact] > [data-ccd-files-header] {
+  border-right: 0;
+}
+
+/* Reference toolbar: 32px band, touching 26px seats, 16px font silhouettes.
+   Native title children stay mounted for rename and extension lifetimes. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane-chrome] [data-dockkit-float-grip] {
+  padding-inline: 8px 4px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-chrome] [data-dockkit-float-title] > :not([data-ccd-pane-caption]) {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-caption] {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  font-size: 14px;
+  line-height: 20px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-caption] > span:not([data-ccd-files-mark]) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="terminal"] [data-ccd-pane-caption] {
+  padding-left: 4px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-chrome] [data-dockkit-float-title]:has(input) > :has(input) {
+  display: flex;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-chrome] [data-dockkit-float-title]:has(input) [data-ccd-pane-caption] {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane-chrome] [data-dockkit-float-grip] button svg {
+  width: 16px;
+  height: 16px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-chrome] [data-dockkit-float-close] > svg {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-close-icon] {
+  display: inline-flex;
+}
+/* Terminal and Files headers omit the overflow control. */
+html[data-dsh-ccd-style="true"] :is([data-ccd-pane-kind="terminal"], [data-ccd-pane-kind="files"], [data-ccd-pane-kind="text"]) [data-ccd-pane-more] {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-address] {
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  gap: 4px;
+  width: 24px !important;
+  height: 24px !important;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-controls] > button:disabled {
+  color: var(--ccd-text-muted);
+  opacity: .45;
+  cursor: default;
+}
+/* The native directory actions live in More; the filter has the whole row. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-root]:not([data-files-navigator]) > [data-ccd-files-header] > :not([data-ccd-files-filter]) {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-menu] {
+  position: fixed;
+  inset: auto;
+  left: var(--ccd-menu-left);
+  top: var(--ccd-menu-top);
+  box-sizing: border-box;
+  width: var(--ccd-menu-width, 200px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--ccd-border);
+  border-radius: 8px;
+  background: var(--ccd-card);
+  color: var(--ccd-text);
+  box-shadow: var(--ccd-view-menu-shadow);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+}
+html[data-dsh-ccd-style="true"] p[data-ccd-pane-menu] {
+  padding: 10px 12px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-menu] > button {
+  display: block;
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-menu] > button:is(:hover, :focus-visible) {
+  background: var(--ccd-hover);
+  outline: none;
+}
+/* The real host form remains in its React body; its slot in the header gives
+   its fixed rectangle. Native controlled input and submit handlers stay intact. */
+html[data-dsh-ccd-style="true"] [data-ccd-browser-toolbar] {
+  position: fixed;
+  inset: auto;
+  z-index: 2;
+  left: var(--ccd-address-left);
+  top: var(--ccd-address-top);
+  display: flex;
+  align-items: center;
+  width: var(--ccd-address-width);
+  height: var(--ccd-address-height);
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ccd-text);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-toolbar][data-ccd-browser-address-hidden],
+html[data-dsh-ccd-style="true"] [data-ccd-browser-toolbar] > button {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-toolbar] > div:has(input) {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-toolbar] input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 24px;
+  padding: 0 28px 0 8px;
+  border: .5px solid var(--ccd-border);
+  border-radius: 6px;
+  background: var(--ccd-card);
+  color: var(--ccd-text);
+  font-family: var(--ccd-font-ui);
+  font-size: 12px;
+  line-height: 20px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-toolbar] input:focus {
+  outline: 1px solid var(--ccd-accent);
+  outline-offset: -1px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-toolbar] button[type="submit"] {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ccd-text-muted);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-wait] {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background-color: var(--ccd-browser-canvas);
+  background-image: radial-gradient(var(--ccd-browser-dot) .75px, transparent .75px);
+  background-size: 16px 16px;
+  color: var(--ccd-right-panel-tab-ink);
+  font-size: 13px;
+  line-height: 19px;
+  pointer-events: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-wait-mark] {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--ccd-track);
+  color: var(--ccd-text-muted);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-wait-mark] svg {
+  width: 24px;
+  height: 24px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-files-search-icon] {
+  flex: none;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: var(--ccd-text-muted);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-files-search-icon] svg {
+  width: 16px;
+  height: 16px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-files-filter]:has([data-ccd-files-search-icon])::before {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-files-empty-mark]:has(svg) {
+  background: none;
+  mask: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-files-empty-mark] svg {
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+
+/* Slot roots carry inline display:contents, which outranks the header rule.
+   The native operation stays reachable from More rather than occupying space
+   beside the reference's full-width filter. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-slot="sidebar.right.tab.files.actions"] {
+  display: none !important;
+}
+
+/* Titles are plain text outside the host's clickable/rename title node. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane-chrome] [data-dockkit-float-title] {
+  display: none !important;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-chrome] > :first-child [data-ccd-pane-caption] {
+  flex: 0 1 auto;
+  max-width: calc(100% - 82px);
+  cursor: default;
+  background: transparent;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-caption] > [data-ccd-files-switch] {
+  width: 24px !important;
+  height: 24px !important;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-caption] > [data-ccd-files-mark] > svg {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-caption] > [data-ccd-terminal-add] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ccd-chip-radius);
+  background: transparent;
+}
+/* All pane tabs use the same cell renderer and surface geometry. An 18px
+   close seat inside a 24px tab leaves 3px above, below and on the right. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane-caption] > [data-ccd-pane-tabs] {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-tab] {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-width: 96px;
+  max-width: 200px;
+  height: 24px;
+  padding: 3px 3px 3px 4px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ccd-right-panel-tab-ink);
+  font-size: 13px;
+  line-height: 18px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-tab]:is(:hover, :focus-within) {
+  background: var(--ccd-file-tab-hover);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-tab][data-selected] {
+  background: var(--ccd-file-tab-selected);
+  color: var(--ccd-files-ink);
+}
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-grip] [data-ccd-pane-tab] > [role="tab"] {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+  height: 18px;
+  padding: 0 4px;
+  border: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-grip] [data-ccd-pane-tab-close] {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+}
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-grip] [data-ccd-pane-tab-close]:hover {
+  background: var(--ccd-file-close-hover);
+}
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-grip] [data-ccd-pane-tab-close]:active:hover {
+  background: var(--ccd-file-close-pressed);
+}
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane] [data-dockkit-float-grip] [data-ccd-pane-tab-close] svg {
+  width: 10px;
+  height: 10px;
+}
+/* Expanded cards cover the conversation but retain the navigation column. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel][data-ccd-pane-expanded] [data-ccd-pane-leading] [data-dockkit-float-grip] {
+  padding-inline: 8px 4px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane] [data-files-root]:not([data-files-navigator])[data-ccd-files-tree="hidden"] > [data-ccd-files-expand] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane-caption] {
+  color: var(--ccd-right-panel-tab-ink);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-terminal-workspace] {
+  color: var(--ccd-text-muted);
+}
+
+
+/* Browser capture menu. */
+html[data-dsh-ccd-style="true"] [data-ccd-browser-menu] {
+  padding: 4px;
+  border: .5px solid var(--ccd-view-menu-border);
+  border-radius: var(--ccd-view-menu-radius);
+  background: var(--ccd-card);
+  color: var(--ccd-view-menu-text);
+  font-family: var(--ccd-font-ui);
+  font-size: 13px;
+  line-height: 20px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-menu] button {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-menu] button:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--ccd-view-menu-hover);
+  outline: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-menu] [data-ccd-browser-save-screenshot]:disabled {
+  color: var(--ccd-view-menu-muted);
+  cursor: default;
+  background: transparent;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="browser"] [data-dockkit-float-grip] button[aria-expanded="true"] {
+  background: var(--ccd-hover);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-wait="idle"] {
+  background: var(--ccd-card);
+  background-image: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-wait="idle"] > * {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="browser"] > :first-child [data-ccd-pane-caption] {
+  flex: 1;
+  max-width: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="browser"] [data-dockkit-float-grip] > [data-ccd-browser-header-fill] {
+  display: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-address] > svg {
+  display: block;
+  flex: none;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-navigation] > [data-ccd-browser-address-slot] {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+}
+
+/* Browser chrome has a tab strip above its native address field. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="browser"] [data-dockkit-float-grip] button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+}
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-ccd-pane-kind="browser"] [data-dockkit-float-grip] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 26px;
+  grid-template-rows: 28px 28px;
+  height: 68px;
+  padding: 4px;
+  gap: 4px;
+  border-bottom: 1px solid var(--ccd-border);
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="browser"] [data-ccd-pane-caption] {
+  grid-area: 1 / 1;
+  overflow: hidden;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="browser"] [data-ccd-pane-controls] {
+  grid-area: 1 / 2;
+  display: flex;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="browser"] [data-dockkit-float-close] {
+  grid-area: 1 / 3;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-navigation] {
+  grid-area: 2 / 1 / 3 / -1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-navigation] > button:disabled {
+  color: var(--ccd-text-muted);
+  opacity: .5;
+  cursor: default;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-toolbar] input {
+  padding-inline: 8px;
+  font-size: 14px;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-browser-toolbar] button[type="submit"] {
+  display: none;
+}
+/* Only the source viewer's code gains weight; its counter stays quiet.
+   Markdown prose, code-block banners and the pane toolbar keep host weights. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="text"] [data-code-preview] pre code {
+  font-weight: 500;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="text"] [data-code-preview] pre code > .line::before {
+  font-weight: 400;
+}
+
+/* File preview: relative path below the title; reload beside header search. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="text"] :is([data-document-viewer-menu], [data-textpreview-tool="reload"], [data-ccd-preview-path-source]),
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="text"] [data-slot="sidebar.right.tab.document.actions"] {
+  display: none !important;
+}
+html[data-dsh-ccd-style="true"] [data-ccd-preview-path] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ccd-right-panel-tab-ink);
+  font-family: var(--ccd-font-ui);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* Match the file preview's wrap and renderer controls to the pane toolbar. */
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="text"] :has(> [data-textpreview-path]) button,
+html[data-dsh-ccd-style="true"] [data-ccd-markdown-toggle] {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ccd-chip-radius);
+  color: var(--ccd-files-ink);
+  background: transparent;
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="text"] :has(> [data-textpreview-path]) button:is(:hover, :focus-visible),
+html[data-dsh-ccd-style="true"] [data-ccd-markdown-toggle]:is(:hover, :focus-visible) {
+  background: var(--ccd-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-pane-kind="text"] :has(> [data-textpreview-path]) button svg,
+html[data-dsh-ccd-style="true"] [data-ccd-markdown-toggle] svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Turn-review file toolbar: compact glyphs and a horizontal overflow trigger.
+   Keep the native menu button and its keyboard/pointer handlers. If no menu is
+   available, retain the host's direct-open action instead of an inert ellipsis. */
+html[data-dsh-ccd-style="true"] [data-changes-review] [data-review-tool],
+html[data-dsh-ccd-style="true"] [data-changes-review] [data-open-path] button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+
+html[data-dsh-ccd-style="true"] [data-changes-review] [data-review-tool] svg,
+html[data-dsh-ccd-style="true"] [data-changes-review] [data-open-path] :is(svg, img) {
+  width: 12px;
+  height: 12px;
+}
+
+html[data-dsh-ccd-style="true"] [data-changes-review] [data-open-path] {
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+
+html[data-dsh-ccd-style="true"] [data-changes-review] [data-open-path]:has([data-open-path-more]) [data-open-path-open],
+html[data-dsh-ccd-style="true"] [data-changes-review] [data-open-path-more] svg {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-changes-review] [data-open-path-more]::before {
+  content: '';
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  mask: var(--ccd-icon-more) center / contain no-repeat;
+  transform: rotate(90deg);
+}
+
+html[data-dsh-ccd-style="true"] [data-changes-review] :is([data-review-tool], [data-open-path] button):is(:hover, :focus-visible):not(:disabled) {
+  background: var(--ccd-hover);
+}

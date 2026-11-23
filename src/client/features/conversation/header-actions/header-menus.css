@@ -1,0 +1,248 @@
+/* Reference crops are @2x: 136/192px cards, 24px rows and 10px corners. */
+html[data-dsh-ccd-style="true"] .ST7X_W_header:has([data-ccd-session-title]) {
+  /* Equal spacing between the title controls and the team entry. */
+  --ccd-header-group-gap: 10px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  padding-left: 18px;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_header [data-ccd-session-title] {
+  flex: 0 1 auto;
+  /* Use the name's natural width. Only actual pressure from the remaining
+     header controls should truncate it, never a fixed or percentage cap. */
+  max-width: none;
+  min-width: 0;
+  gap: 6px;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-title] .ST7X_W_crumb {
+  max-width: none;
+  min-width: 0;
+  padding: 0;
+  color: var(--ccd-header-icon-color);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+/* Keep the icon, title and chevron on the traffic lights' y=25 axis. */
+html[data-dsh-ccd-style="true"][data-platform="darwin"] .ST7X_W_header:has([data-ccd-session-title]) {
+  padding-top: 10px;
+  padding-bottom: 0;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-title] .ST7X_W_crumbSeg {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-title] .ST7X_W_crumb[role="button"] {
+  cursor: text;
+  padding: 0 4px;
+  margin: 0 -4px;
+  border-radius: 6px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-title] .ST7X_W_crumb[role="button"]:hover {
+  background: var(--ccd-header-trigger-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-title] .ST7X_W_crumb[role="button"]:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 1px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-editing] > :not([data-ccd-session-icon], [data-ccd-session-trigger], [data-ccd-session-rename]) {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-rename] {
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  min-width: 32px;
+  height: 24px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  outline: none;
+  background: transparent;
+  color: var(--ccd-header-icon-color);
+  font: 500 13px/24px var(--ccd-font-ui);
+  -webkit-app-region: no-drag;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-title][data-ccd-session-editing] {
+  overflow: visible;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-rename]:focus {
+  outline: 2px solid Highlight;
+  outline-offset: -2px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-icon] {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  width: 16px;
+  height: 24px;
+  color: var(--ccd-header-icon-color);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-icon] svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-trigger] {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ccd-header-label-ink);
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-session-trigger]:hover,
+html[data-dsh-ccd-style="true"] [data-ccd-session-trigger][aria-expanded="true"] {
+  background: var(--ccd-header-trigger-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 136px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--ccd-header-menu-border);
+  border-radius: 10px;
+  background: var(--ccd-card);
+  color: var(--ccd-view-menu-text);
+  box-shadow: var(--ccd-view-menu-shadow);
+  font-family: var(--ccd-font-ui);
+  font-size: 13px;
+  line-height: 20px;
+  -webkit-app-region: no-drag;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu="session"] { width: 160px; }
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] button {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] button > [data-ccd-header-row-label] { flex: 1; }
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] button:hover,
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] button:focus-visible,
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] button[aria-expanded="true"] {
+  outline: none;
+  background: var(--ccd-view-menu-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] [data-ccd-menu-mark] {
+  flex: none;
+  color: var(--ccd-text-muted);
+  font-size: 12px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] [aria-haspopup] [data-ccd-menu-mark] {
+  display: flex;
+  width: 12px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] [aria-haspopup] [data-ccd-menu-mark] svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  transform: rotate(-90deg);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] hr {
+  height: 1px;
+  margin: 4px 8px;
+  border: 0;
+  background: var(--ccd-header-menu-separator);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-dialog] {
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--ccd-header-menu-border);
+  border-radius: 10px;
+  background: var(--ccd-card);
+  color: var(--ccd-text);
+  box-shadow: var(--ccd-view-menu-shadow);
+  font: 13px/20px var(--ccd-font-ui);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-dialog] p { margin: 0 0 12px; }
+html[data-dsh-ccd-style="true"] [data-ccd-header-dialog] button {
+  margin-right: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--ccd-border);
+  border-radius: 5px;
+  background: var(--ccd-track);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Only the decorative seat gets icon geometry; labels retain the flexible cell. */
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] button {
+  gap: 8px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] [data-ccd-header-row-icon] {
+  display: inline-flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: inherit;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-row-icon] svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-header-menu] [data-ccd-header-row-icon] img {
+  display: block;
+  width: 16px;
+  height: 16px;
+}

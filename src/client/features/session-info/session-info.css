@@ -1,0 +1,192 @@
+/* Reserve a rail while tools are closed. With the native rightbar open,
+   information cards float above chat without changing its content width. */
+/* The separator is outside the button's hit box and selected surface. */
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .ccd-session-info-toggle {
+  position: relative;
+  margin-right: 12px;
+}
+.ccd-header-action.ccd-session-info-toggle::before { display: none; }
+.ccd-session-info-toggle::after {
+  content: "";
+  position: absolute;
+  right: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 16px;
+  background: var(--ccd-border);
+  pointer-events: none;
+}
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities > [data-slot] .ccd-session-info-toggle svg {
+  color: inherit;
+}
+
+html[data-dsh-ccd-style="true"] [data-conversation-content][data-ccd-session-info]:not([data-ccd-session-info="overlay"]) {
+  --ccd-info-reserve: 316px;
+  padding-right: var(--ccd-info-reserve);
+  box-sizing: border-box;
+}
+
+/* The host clamps drags using the body's full offsetWidth, including its
+   padding. Map that range into the narrower reading column: leave 48px for
+   gutters at the maximum and use half of the remaining drag distance while
+   constrained by the rail. The same mapping applies before and during a drag. */
+html[data-dsh-ccd-style="true"] [data-conversation-content][data-ccd-session-info="rail"]:has(> [data-width-handle]) {
+  --ccd-info-outer-width: var(--dsh-conversation-column-width, 936px);
+  --ccd-info-native-width: var(--dsh-chat-user-width, clamp(680px, var(--ccd-info-outer-width) * .64, 920px));
+  --ccd-info-native-max: calc(var(--ccd-info-outer-width) - 176px);
+  --ccd-info-reading-max: calc(var(--ccd-info-outer-width) - var(--ccd-info-reserve) - 48px);
+  --dsh-chat-content-width: min(var(--ccd-info-native-width),
+    var(--ccd-info-reading-max) - (var(--ccd-info-native-max) - var(--ccd-info-native-width)) / 2);
+}
+
+html[data-dsh-ccd-style="true"] [data-conversation-content][data-ccd-session-info="rail"] > [data-width-handle] {
+  width: 10px;
+}
+
+html[data-dsh-ccd-style="true"] [data-conversation-content][data-ccd-session-info="rail"] > [data-width-handle="left"] {
+  right: calc(50% + (var(--ccd-info-reserve) + var(--dsh-chat-content-width)) / 2 + 10px);
+}
+
+html[data-dsh-ccd-style="true"] [data-conversation-content][data-ccd-session-info="rail"] > [data-width-handle="right"] {
+  left: calc(50% - (var(--ccd-info-reserve) - var(--dsh-chat-content-width)) / 2 + 10px);
+}
+
+html[data-dsh-ccd-style="true"] [data-conversation-content][data-ccd-session-info]:not([data-ccd-session-info="overlay"])::before,
+html[data-dsh-ccd-style="true"] [data-conversation-content][data-ccd-session-info]:not([data-ccd-session-info="overlay"])::after {
+  right: var(--ccd-info-reserve);
+}
+
+/* Extend the native chat scroll surface behind the rail, while its content
+   keeps the reserved width. Its scrollbar lands beyond the cards on the right. */
+html[data-dsh-ccd-style="true"] [data-conversation-content][data-ccd-session-info]:not([data-ccd-session-info="overlay"]) > [data-conversation-scroll] {
+  margin-right: calc(2px - var(--ccd-info-reserve));
+  padding-right: var(--ccd-info-reserve);
+  box-sizing: border-box;
+}
+
+/* Overlay views (Trajectory) pin the composer seat absolutely, which ignores
+   the scroll padding above; keep it centred on the chat column, not the rail. */
+html[data-dsh-ccd-style="true"] [data-conversation-content][data-ccd-session-info]:not([data-ccd-session-info="overlay"]) > [data-conversation-scroll]:has([data-conversation-composer-overlay]) > [data-composer-seat] {
+  right: var(--ccd-info-reserve);
+}
+
+.ccd-session-cards {
+  --ccd-info-secondary: color-mix(in srgb, var(--ccd-text-secondary) 88%, var(--ccd-text));
+  --ccd-info-track: color-mix(in srgb, var(--ccd-text) 12%, var(--ccd-canvas));
+  --ccd-info-outline: color-mix(in srgb, var(--ccd-border) 80%, var(--ccd-canvas));
+  position: fixed;
+  z-index: 20;
+  width: 308px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  scrollbar-width: thin;
+  pointer-events: auto;
+  color: var(--ccd-text);
+  font: 13px/22px var(--ccd-font-ui);
+  font-variant-numeric: tabular-nums;
+  /* The card body keeps its reference width; the final 8px is the chat scrollbar lane. */
+  padding: 9px 10px 12px;
+  box-sizing: border-box;
+}
+
+.ccd-info-card {
+  position: relative;
+  flex: none;
+  border: 1px solid var(--ccd-info-outline);
+  border-radius: 14px;
+  background: var(--ccd-canvas);
+  overflow: hidden;
+}
+
+.ccd-session-cards[data-ccd-info-dragging] { overflow: visible; }
+.ccd-session-cards[data-ccd-info-dragging] .ccd-info-card { transition: transform 140ms ease; }
+.ccd-session-cards .ccd-info-card[data-ccd-info-moving] { z-index: 1; transition: none; cursor: grabbing; }
+.ccd-session-cards[data-ccd-info-dragging] .ccd-info-card,
+.ccd-session-cards[data-ccd-info-dragging] .ccd-info-card .ccd-info-text { user-select: none; -webkit-user-select: none; }
+
+.ccd-info-header { position: relative; display: flex; align-items: center; min-height: 22px; padding: 10px 12px; touch-action: none; }
+.ccd-info-toggle, .ccd-info-grip, .ccd-info-retry, .ccd-info-link {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ccd-info-toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; flex: 1; padding: 0; text-align: left; }
+.ccd-info-toggle > span:first-child { flex: none; display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.ccd-info-chevron { display: block; flex: none; width: 12px; height: 12px; color: var(--ccd-info-secondary); transform: rotate(-90deg); }
+[data-open="true"] > .ccd-info-chevron, .ccd-info-group[open] > summary > .ccd-info-chevron { transform: none; }
+.ccd-info-summary { color: var(--ccd-info-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Floats over the padding so a resting summary reaches the reference's right edge. */
+.ccd-info-grip { position: absolute; top: 10px; right: 2px; width: 20px; height: 22px; padding: 0; color: var(--ccd-text-secondary); cursor: grab; opacity: 0; }
+.ccd-info-header:hover .ccd-info-grip, .ccd-info-header:focus-within .ccd-info-grip { opacity: 1; }
+.ccd-info-header:hover .ccd-info-summary, .ccd-info-header:focus-within .ccd-info-summary { margin-right: 10px; }
+.ccd-info-toggle:focus-visible, .ccd-info-grip:focus-visible, .ccd-info-retry:focus-visible, .ccd-info-group summary:focus-visible {
+  outline: 2px solid var(--ccd-text-secondary);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.ccd-info-content { margin-top: -6px; padding: 0 12px 10px; }
+.ccd-info-value { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.ccd-info-value > span:first-child { flex: none; color: var(--ccd-info-secondary); white-space: nowrap; }
+.ccd-info-value > span:last-child { min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ccd-info-text { display: block; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; user-select: text; -webkit-user-select: text; }
+.ccd-info-link { padding: 0; max-width: 100%; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); }
+.ccd-info-link:hover { text-decoration-color: currentColor; }
+.ccd-info-text.ccd-info-link { flex: 0 1 auto; }
+.ccd-info-link:focus-visible { outline: 1px solid var(--ccd-text-secondary); outline-offset: -1px; border-radius: 3px; }
+.ccd-info-text:focus-visible { outline: 1px solid var(--ccd-text-secondary); outline-offset: -1px; border-radius: 3px; }
+.ccd-info-tooltip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 6px 9px;
+  box-sizing: border-box;
+  max-width: min(480px, calc(100vw - 16px));
+  border: 0;
+  border-radius: 6px;
+  background: var(--ccd-command-tooltip-fill);
+  color: var(--ccd-command-tooltip-ink);
+  font: 12px/18px var(--ccd-font-ui);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.ccd-info-tooltip::backdrop { background: transparent; pointer-events: none; }
+.ccd-info-value > span.ccd-info-tooltip { white-space: normal; text-align: left; overflow: visible; }
+.ccd-info-retry { color: var(--ccd-info-secondary); padding: 3px 0 0; text-decoration: underline; }
+.ccd-info-empty { margin: 0; color: var(--ccd-info-secondary); }
+.ccd-info-headline { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ccd-info-headline > span:first-child { font-weight: 600; }
+.ccd-info-headline > span:last-child { color: var(--ccd-info-secondary); white-space: nowrap; }
+.ccd-info-environment { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 2px 0 3px; font-weight: 500; }
+.ccd-info-environment svg { flex: none; width: 16px; height: 16px; margin-left: 2px; color: var(--ccd-info-secondary); }
+.ccd-info-environment .ccd-info-text { text-align: left; }
+.ccd-info-environment .ccd-info-link { text-decoration-color: transparent; }
+.ccd-info-environment .ccd-info-link:hover { text-decoration-color: currentColor; }
+.ccd-info-bar { display: flex; gap: 1px; height: 5px; margin: 5px 0 9px; overflow: hidden; border-radius: 3px; }
+.ccd-info-bar i { flex-basis: 0; min-width: 0; }
+.ccd-info-context-row { display: grid; grid-template-columns: minmax(0, 1fr) 52px 46px; gap: 0; line-height: 21px; color: var(--ccd-info-secondary); }
+.ccd-info-context-row > span:first-child { display: flex; align-items: center; gap: 9px; padding-left: 1px; overflow: hidden; white-space: nowrap; }
+.ccd-info-context-row > span:not(:first-child) { text-align: right; }
+.ccd-info-context-row > span:last-child { color: var(--ccd-text); font-weight: 600; }
+.ccd-info-context-row i { display: block; flex: none; width: 10px; height: 10px; border-radius: 3px; }
+.ccd-session-cards [data-slice="tools"] { background: var(--ccd-info-slice-tools); }
+.ccd-session-cards [data-slice="messages"] { background: var(--ccd-info-slice-messages); }
+.ccd-session-cards [data-slice="mcp"] { background: var(--ccd-info-slice-mcp); }
+.ccd-session-cards [data-slice="skills"] { background: var(--ccd-info-slice-skills); }
+.ccd-session-cards :is([data-slice="system"], [data-slice="memory"]) { background: color-mix(in srgb, var(--ccd-text) 65%, var(--ccd-canvas)); }
+.ccd-session-cards [data-slice="autocompact"] { background: color-mix(in srgb, var(--ccd-text) 40%, var(--ccd-canvas)); }
+.ccd-session-cards [data-slice="free"] { background: var(--ccd-info-track); }
+.ccd-info-group { margin: 0 -4px; color: var(--ccd-info-secondary); }
+.ccd-info-context-row:last-child { margin-bottom: 6px; }
+.ccd-info-group summary { display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 5px; margin-bottom: 1px; border-radius: 6px; cursor: pointer; list-style: none; }
+.ccd-info-group summary::-webkit-details-marker { display: none; }
+.ccd-info-group summary:hover { background: var(--ccd-hover); }
+.ccd-info-group summary > span:last-child { margin-left: auto; }
+.ccd-info-details { max-height: 170px; overflow: auto; padding: 0 5px 0 24px; line-height: 21px; }
+.ccd-info-details .ccd-info-value > span:last-child { flex: none; }
+@media (hover: none) { .ccd-info-grip { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ccd-session-cards[data-ccd-info-dragging] .ccd-info-card { transition: none; } }

@@ -1,0 +1,128 @@
+/* New-session whale in shell.overlay, positioned by compat/pet-anchor.ts.
+ * Brand colours come from theme/tokens.css; the decorative seat is click-through.
+ */
+
+html[data-dsh-ccd-style="true"] .ccd-pet-blank-seat {
+  position: fixed;
+  width: 32px;
+  height: 24px;
+  pointer-events: none;
+}
+
+/* The native hero creates a z-index: 1 stacking context, below shell.overlay
+ * (20), where the pet lives. Lift the open menu's context above that layer;
+ * raising the menu alone cannot escape its hero ancestor. */
+html[data-dsh-ccd-style="true"] .ST7X_W_composerHero:has([data-trigger-menu]) {
+  z-index: 21;
+}
+
+/* Hide when a row precedes Composer, except hero greeting and workspace chips.
+ * The frame-wide seat uses a root :has() query to observe the Composer stack.
+ * Selector sources: compat/host-dom.ts, composerStack/heroRoot/heroWorkspaceRow/composerRoot.
+ */
+html[data-dsh-ccd-style="true"]:has(.ST7X_W_composerStack > :not(.bocITq_root):not(.ST7X_W_heroWorkspaceRow):not(.yhfFVG_root) ~ .yhfFVG_root) .ccd-pet-blank-seat {
+  display: none;
+}
+
+/* Hide during outgoing and steering echoes in the hero phase.
+ * Source: UserStyleBubble's data-submission-echo/data-pending-steering.
+ */
+html[data-dsh-ccd-style="true"]:has([data-submission-echo], [data-pending-steering]) .ccd-pet-blank-seat {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] .ccd-composer-pet {
+  display: block;
+  position: relative;
+  width: 32px;
+  height: 24px;
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ccd-pet-blue);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* A 44px target grows upwards, leaving the input surface below click-through.
+   The measured seat and the artwork keep their original 32 × 24 geometry. */
+html[data-dsh-ccd-style="true"] .ccd-composer-pet::before {
+  content: "";
+  position: absolute;
+  inset: -20px -6px 0;
+}
+
+html[data-dsh-ccd-style="true"] .ccd-composer-pet:focus-visible {
+  outline: 1px solid var(--ccd-accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+html[data-dsh-ccd-style="true"] .ccd-pet-art {
+  display: block;
+  overflow: visible;
+  fill: currentColor;
+}
+
+html[data-dsh-ccd-style="true"] .ccd-pet-belly,
+html[data-dsh-ccd-style="true"] .ccd-pet-eye,
+html[data-dsh-ccd-style="true"] .ccd-pet-eye-shut {
+  fill: var(--ccd-pet-light);
+}
+
+/* One eye at a time: the open pixel eye and the shut line are swapped by the
+   blink keyframes, so the closed pose is drawn rather than faked with opacity
+   on a single shape. */
+html[data-dsh-ccd-style="true"] .ccd-pet-eye-shut { opacity: 0; }
+html[data-dsh-ccd-style="true"] .ccd-pet-spout { opacity: 0; }
+
+html[data-dsh-ccd-style="true"] .ccd-composer-pet:not([data-reaction]) .ccd-pet-eye { animation: ccd-pet-blink 7.8s steps(1, end) infinite; }
+html[data-dsh-ccd-style="true"] .ccd-composer-pet:not([data-reaction]) .ccd-pet-eye-shut { animation: ccd-pet-blink-shut 7.8s steps(1, end) infinite; }
+html[data-dsh-ccd-style="true"] .ccd-composer-pet:not([data-reaction]) .ccd-pet-tail { animation: ccd-pet-rest-tail 11s steps(1, end) infinite; }
+
+html[data-dsh-ccd-style="true"] .ccd-pet-body { transform-origin: 16px 23px; }
+html[data-dsh-ccd-style="true"] .ccd-pet-tail { transform-origin: 24px 14px; }
+html[data-dsh-ccd-style="true"] .ccd-pet-fin { transform-origin: 17px 18px; }
+
+/* A hidden document pauses every frame instead of dropping them: the pet is
+   still there when the window comes back, without a timer running behind it. */
+html[data-dsh-ccd-style="true"] .ccd-composer-pet[data-paused] * { animation-play-state: paused !important; }
+
+@keyframes ccd-pet-blink {
+  0%, 94%, 98%, 100% { opacity: 1; }
+  95%, 97% { opacity: 0; }
+}
+
+@keyframes ccd-pet-blink-shut {
+  0%, 94%, 98%, 100% { opacity: 0; }
+  95%, 97% { opacity: 1; }
+}
+
+@keyframes ccd-pet-rest-tail {
+  0%, 94%, 100% { transform: translateY(0); }
+  96% { transform: translateY(-1px); }
+}
+
+/* Reduced motion keeps the poses (the shut eye, the resting tail) and drops the
+   movement, so the pet is still a mark on the card rather than a blank box. */
+@media (prefers-reduced-motion: reduce) {
+  html[data-dsh-ccd-style="true"] .ccd-composer-pet * { animation: none !important; }
+}
+
+html[data-dsh-ccd-style="true"] .ccd-pet-blank-seat[data-pet-style="claude"],
+html[data-dsh-ccd-style="true"] .ccd-claude-pet {
+  width: 36px;
+}
+html[data-dsh-ccd-style="true"] .ccd-claude-art {
+  position: absolute;
+  left: -15px;
+  top: -13px;
+  overflow: visible;
+  pointer-events: none;
+}
+html[data-dsh-ccd-style="true"] .ccd-claude-body { fill: var(--ccd-claude-coral); }
+html[data-dsh-ccd-style="true"] .ccd-claude-shade { fill: var(--ccd-claude-shade); }
+html[data-dsh-ccd-style="true"] .ccd-claude-eyes { fill: var(--ccd-claude-eye); }
+html[data-dsh-ccd-style="true"] .ccd-claude-laptop { fill: var(--ccd-claude-laptop); }

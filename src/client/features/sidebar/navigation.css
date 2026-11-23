@@ -1,0 +1,87 @@
+/* Replace only the decorated native glyphs; all click/focus/selection remains
+   owned by DSH. A 16px seat preserves the existing text column in both layouts.
+   The More launcher draws its apps glyph straight into the seat rather than
+   through the panel list's slot. The Theme row's slot glyph is a sized box
+   around its artwork, so the box goes rather than only the drawing in it:
+   left in place it would take half the 16px seat and push this glyph aside. */
+html[data-dsh-ccd-style="true"] [data-ccd-nav="newSession"] ._3WPZCG_newSessionContent > svg,
+html[data-dsh-ccd-style="true"] [data-ccd-nav] ._3WPZCG_panelGlyph > [data-slot="sidebar.panellist"] svg,
+html[data-dsh-ccd-style="true"] [data-ccd-nav] ._3WPZCG_panelGlyph > [data-slot="sidebar.panellist"] [data-ccd-theme-glyph],
+html[data-dsh-ccd-style="true"] [data-ccd-nav="more"] ._3WPZCG_panelGlyph > svg {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-nav] .ccd-nav-glyph {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+/* Measured on the reference at @2x: the toolbox and clock inks are about 12px
+   wide, the plus disc about 17px — 15px and 17px boxes on the 24-unit artwork. */
+html[data-dsh-ccd-style="true"] ._3WPZCG_root [data-ccd-nav] .ccd-nav-glyph > svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  overflow: visible;
+}
+
+html[data-dsh-ccd-style="true"] ._3WPZCG_root [data-ccd-nav="newSession"] .ccd-nav-glyph > svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* The collapsed rail draws on the host's 36px seats beside its own 18px
+   artwork, where the expanded layout's 15px inks read small. The New Session
+   plus already reads 17px in both layouts, and the Windows caption owns its
+   own 16px seat for the collapsed button, so neither is restated here. */
+html[data-dsh-ccd-style="true"] ._3WPZCG_root._3WPZCG_collapsed [data-ccd-nav]:not([data-ccd-nav="newSession"]) .ccd-nav-glyph > svg {
+  width: 17px;
+  height: 17px;
+}
+
+html[data-dsh-ccd-style="true"] .ccd-nav-glyph :is(.customize-case, .routine-long-hand, .search-glass, .theme-palette) {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+  transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+html[data-dsh-ccd-style="true"] .ccd-nav-glyph .icon-disc {
+  transition: opacity 180ms ease;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-nav]:is(:hover, :focus-visible) .customize-case {
+  transform: rotate(-6deg);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-nav]:is(:hover, :focus-visible) .routine-long-hand {
+  transform: rotate(45deg);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-nav]:is(:hover, :focus-visible) .search-glass {
+  transform: rotate(-10deg);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-nav]:is(:hover, :focus-visible) .theme-palette {
+  transform: rotate(-12deg);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-nav]:is(:hover, :focus-visible) .icon-disc {
+  opacity: 0;
+}
+
+/* Match the New Session row's selected state, including without hover. */
+html[data-dsh-ccd-style="true"]:has(.ST7X_W_root[data-phase="hero"]) ._3WPZCG_root:not(._3WPZCG_collapsed) [data-ccd-nav="newSession"] .icon-disc {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-dsh-ccd-style="true"] .ccd-nav-glyph :is(.customize-case, .routine-long-hand, .search-glass, .theme-palette, .icon-disc) {
+    transition: none;
+  }
+}

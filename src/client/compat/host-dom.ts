@@ -1,0 +1,506 @@
+import { aliasHostSelectors, SHARED_HOST_CLASSES, detectHostBuild, type HostBuild } from './host-builds.ts';
+
+/**
+ * Version-pinned host DOM facts.
+ *
+ * Every selector here was read from the running DSH `0.2.0-rc.2` renderer and
+ * cross-checked against the shipped CSS-module class names of the pinned UI
+ * packages. DSH hashes CSS-module class names per build, so these are the one
+ * place that may need updating for another DSH release; nothing outside this
+ * module may hard-code a host class name.
+ *
+ * The names below are the macOS build's. `host-builds.ts` holds the same
+ * classes as the Windows build spells them, and `hostSelectors` /
+ * `hostAnchors` resolve this table for the document actually on screen, so
+ * callers never branch on the platform themselves.
+ *
+ * Sources (app.asar, `0.2.0-rc.2`):
+ * - `packages/client/ui-layout/src/client/AppFrame.module.css` (`_6Qf49G_`)
+ * - `packages/client/ui-sidebar/src/client/SidebarRoot.module.css` (`_3WPZCG_`)
+ * - `packages/client/ui-conversation/src/client/ConversationRoot.module.css` (`ST7X_W_`)
+ * - `packages/client/ui-conversation/src/client/InputBar.module.css` (`yhfFVG_`)
+ * - `packages/client/ui-model-selection/src/client/ModelSelect.module.css` (`cl2Rlq_`)
+ * - `packages/client/ui-permission-presets/src/client/PermissionSelect.module.css` (`wXeviG_`)
+ * - `packages/experimental/client-ui-agent-team/src/client/TeamAction.module.css` (`_2tNPVa_`)
+ * - `packages/client/ui-agent-preset/src/client/AgentPresetLabel.module.css` (`_3li69W_`)
+ * - `packages/client/ui-open-in-app/src/client/OpenTargetButton.module.css` (`iq4beG_`)
+ * - `packages/session-query/session-log-export/src/client/HeaderAction.module.css` (`Da3aKq_`)
+ * - `packages/client/ui-conversation/src/client/ConversationHero.module.css` (`bocITq_`)
+ * - `packages/client/ui-conversation/src/client/skeleton/ContextMeter.module.css` (`y0jqnG_`)
+ * - `packages/client/ui-attachment/src/client/ComposerAttachments.module.css` (`dVdiKa_`)
+ * - `packages/client/ui-chat/src/client/chat/StatsPills.module.css` (`OpZ85W_`)
+ * - `packages/client/ui-workspace/src/client/WorkspaceBrowser.module.css` (`_7514NG_`)
+ * - `packages/client/ui-sidebar-right/src/client/shell/SidebarRight.tsx` (the
+ *   panel box and its `data-sidebar-right-*` hooks)
+ * - `packages/client/ui-dockkit/src/client/DockLayout.tsx` and its
+ *   `DockLayout.module.css` (`_6nhg2_`), shipped on both installers as part of
+ *   the `dsh-web-frontend` dist (`data-dockkit-*` hooks)
+ * - `packages/client/ui-sidebar-files/src/client/FilesBody.tsx` (the file tree
+ *   and its `data-files-*` hooks)
+ * - `packages/client/ui-workspace/src/client/rows/Rows.module.css` (`jJkEga_`: the
+ *   Workspace and Session rows, and the primary bundle's copy of the same sheet)
+ * - `packages/client/ui-workspace/src/client/rows/Rows.tsx` (`data-row-key` on the
+ *   Workspace and Session rows: `workspace:<key>` / `session:<id>`)
+ * - `packages/client/ui-settings/src/client/SettingsRoot.module.css` (`Dws9Sa_`)
+ * - `packages/client/ui-settings-account/src/client/AccountMenu.module.css` (`ZogL4G_`)
+ * - `packages/client/ui-primitives/lib/Menu.module.css` (`_4ub78_`, `_ri079_`)
+ * - `packages/client/ui-primitives/lib/Modal.module.css` (`_o6lrb_`) and
+ *   `RiskConfirmation.module.css` (`_cjd8z_`), shared static frontend styles
+ * - `packages/client/ui-primitives/lib/Menu.js` (`MenuItemButton`: the icon seat
+ *   `account-menu.css` scales; its `[role="menuitem"] > span` structure)
+ * - `packages/client/ui-chat/src/client/chat/AssistantMarkdown.module.css` (`gKv1-q_`)
+ * - `packages/client/ui-chat/src/client/chat/ChatView.module.css` (`icaHSq_`: the
+ *   transcript scroll area and the floating jump-to-bottom control it renders
+ *   below the transcript while the reader is off the tail)
+ * - `packages/client/ui-primitives/lib/markdown/MarkdownText.module.css`
+ *   (static web-frontend bundle: `_1ypvv_`; shared by Web and Desktop)
+ */
+export const HOST = Object.freeze({
+  frame: '._6Qf49G_frame',
+  sidebarColumn: '._6Qf49G_sidebarCol',
+  centerColumn: '._6Qf49G_centerCol',
+  rightbarColumn: '._6Qf49G_rightbarCol',
+  resizeHandle: '._6Qf49G_handle',
+  /**
+   * ui-sidebar-right/shell/SidebarRight.tsx: the right panel's own box, which
+   * the host positions absolutely against the column's right edge and sizes
+   * inline (the resolved width, or `100vw` in full screen). Its
+   * `data-sidebar-right-panel` (`push` / `fullscreen`) and
+   * `data-sidebar-right-open` are the package's own stable hooks, so the card
+   * `features/right-panel/frame.css` paints on it survives a build whose classes were rehashed; this
+   * plugin authors no selector for the panel's hashed class.
+   */
+  rightbarPanel: '[data-sidebar-right-panel]',
+  /**
+   * DockKit (`dsh-web-frontend`'s dock layout, the static bundle both installers
+   * ship — the same case `_1ypvv_` records in `host-builds.ts`, so these need no
+   * prefix entry): the boxes inside that panel, also addressed by the package's
+   * own data attributes. `surface` is the layout root the card's fill is drawn
+   * on, `pane` a dock column that would otherwise paint the canvas over it,
+   * `strip` the tab strip (the card's header row), `divider` the hairline
+   * between two columns, `empty` a column no tab has claimed. Only
+   * `features/right-panel/right-panel.css` reads them.
+   */
+  dockSurface: '[data-dockkit-surface]',
+  dockPane: '[data-dockkit-pane]',
+  dockStrip: '[data-dockkit-strip]',
+  dockTab: '[data-dockkit-tab]',
+  dockTabTitle: '[data-dockkit-tab-title]',
+  dockStripChrome: '[data-dockkit-strip-chrome]',
+  dockDivider: '[data-dockkit-divider]',
+  dockEmpty: '[data-dockkit-empty]',
+  /**
+   * DockKit's tab body and its two hosts. Every tab of the panel draws one
+   * `content` box, and where that box sits says how the tab is hosted: inside a
+   * dock column (`host="dock"`) it is a tab of the panel's own strip, while a
+   * `float` box carries `data-dockkit-float` itself and is drawn `position:
+   * fixed` at the rectangle the layout stores for it. `compat/right-panes.ts`
+   * reads the two apart to decide which tabs are still tabs and which are panes.
+   */
+  dockContent: '[data-dockkit-content]',
+  dockFloat: '[data-dockkit-float]',
+  /**
+   * DockKit's float header: the grip a pointer drags the pane by, and the two
+   * controls it draws — "dock back into the panel" and "close". The panes this
+   * plugin draws keep the grip's place as their title row (with the drag
+   * retired) and hide the dock control, because a pane is already docked in
+   * everything but name; the close control stays the reader's way out of one.
+   */
+  dockFloatGrip: '[data-dockkit-float-grip]',
+  dockFloatTitle: '[data-dockkit-float-title]',
+  dockFloatDock: '[data-dockkit-float-dock]',
+  dockFloatResize: '[data-dockkit-float-resize]',
+  /**
+   * ui-sidebar-right/shell/SidebarRight.tsx: the Session the panel on screen is
+   * drawing. The panel element is reused across Session switches, so the tabs
+   * this module floats are read for the Session this hook names rather than for
+   * whatever the layout last held.
+   */
+  rightbarSession: '[data-sidebar-right-session]',
+  /**
+   * ui-sidebar-files/FilesBody.tsx: the file tree's own hooks. The pane's header
+   * is the root's non-body child (the scroller writes `data-files-body`), each
+   * entry row carries `data-files-entry` (`directory` / `file` / `other`) with
+   * the path it stands for, and the host's folder glyph and per-type glyph are
+   * the row button's first child. The tree's rows are dressed through these
+   * hooks and their own structure, so the Files sheet needs no class name of
+   * that package — whose hashes differ per build and are not in the pinned
+   * tables — either.
+   */
+  filesRoot: '[data-files-root]',
+  filesBody: '[data-files-body]',
+  filesEntry: '[data-files-entry]',
+  sidebarRoot: '._3WPZCG_root',
+  sidebarCollapsed: '._3WPZCG_collapsed',
+  sidebarLogoRow: '._3WPZCG_logoRow',
+  sidebarBrand: '._3WPZCG_brand',
+  sidebarBrandName: '._3WPZCG_brandName',
+  sidebarTopStrip: '._3WPZCG_topStrip',
+  /** SidebarRoot.module.css: expanded macOS window-chrome toggle. */
+  sidebarToggle: '._3WPZCG_toggle',
+  sidebarNewSession: '._3WPZCG_newSession',
+  sidebarNewSessionContent: '._3WPZCG_newSessionContent',
+  sidebarNewSessionLabel: '._3WPZCG_newSessionLabel',
+  sidebarNewSessionShortcut: '._3WPZCG_newSessionShortcut',
+  sidebarPanelList: '._3WPZCG_panelList',
+  sidebarPanelRow: '._3WPZCG_panelRow',
+  sidebarPanelTitle: '._3WPZCG_panelTitle',
+  sidebarPanelGlyph: '._3WPZCG_panelGlyph',
+  /** SidebarRoot.module.css: the panel list's More card (`PanelMoreMenu`). */
+  sidebarMoreMenu: '._3WPZCG_moreMenu',
+  sidebarRegionArea: '._3WPZCG_regionArea',
+  sidebarFootArea: '._3WPZCG_footArea',
+  sidebarSettingsArea: '._3WPZCG_settingsArea',
+  sidebarIconButton: '._3WPZCG_iconButton',
+  browserRoot: '._7514NG_root',
+  browserSectionHeader: '._7514NG_sectionHeader',
+  browserSectionLabel: '._7514NG_sectionLabel',
+  browserListArea: '._7514NG_listArea',
+  /** WorkspaceBrowser.module.css: the header's two control groups, which
+      `sidebar.css` keeps clickable while the header is parked over a row. */
+  browserSectionActions: '._7514NG_headerActions',
+  browserSearchSlot: '._7514NG_searchSlot',
+  /** WorkspaceBrowser.module.css: the search control and its expanded state —
+      the one the parked header paints a background under, because the field
+      then covers the Workspace row it is parked on. */
+  browserSearch: '._7514NG_search',
+  browserSearchExpanded: '._7514NG_searchExpanded',
+  /** WorkspaceBrowser.module.css: the tree's own scroller — the one element
+      whose scroll distance the parked header band follows. */
+  browserList: '._7514NG_list',
+  /** FlatList is the only native body the status presentation reorders. */
+  browserFlatList: '._7514NG_flatList',
+  /** StateDot's stable state attributes, used when root sessionStatus is absent. */
+  sessionNeedsInput: '[aria-hidden="true"][data-state="warning"]',
+  sessionWorking: '[aria-hidden="true"][data-state="ongoing"]',
+  /** Rows.module.css: the Session row the main panel is showing. A folded
+      status section keeps this one row visible. */
+  sessionRowSelected: '.jJkEga_selected',
+  /** Rows.module.css: one Workspace's row, the line the merged header shares,
+      and its trailing action group (`sidebar.css` parks both). */
+  workspaceRow: '.jJkEga_projectRow',
+  workspaceRowActions: '.jJkEga_rowActions',
+  /** Rows.module.css: the state the host puts on a row whose menu is open —
+      `sidebar.css` keeps that row's own actions visible through it. */
+  workspaceRowMenuOpen: '.jJkEga_menuOpen',
+  /**
+   * WorkspaceBrowser.module.css: the section header's view-options trigger —
+   * the one control there that is an `iconButton` *and* carries `wide` (its
+   * neighbours are `searchButton` and a plain `iconButton`), and the list class
+   * its card puts on the `Menu` surface. `compat/view-options.ts` reads the
+   * values out of that card and clicks its rows; the card itself is kept off
+   * screen while it does.
+   */
+  viewOptionsTrigger: '._7514NG_sectionHeader ._7514NG_iconButton._7514NG_wide',
+  viewOptionsMenu: '._7514NG_viewOptionsMenu',
+  /**
+   * WorkspaceBrowser.module.css: one Workspace's row container — the box that
+   * holds its Workspace row, its nested groups and its Session rows, and the
+   * box `compat/empty-groups.ts` hides when the group has nothing to show.
+   */
+  workspaceGroup: '._7514NG_groupSection',
+  settingsTrigger: '.Dws9Sa_trigger',
+  settingsTriggerRow: '.Dws9Sa_triggerRow',
+  accountTrigger: '.ZogL4G_trigger',
+  accountLabel: '.ZogL4G_label',
+  conversationRoot: '.ST7X_W_root',
+  conversationHeader: '.ST7X_W_header',
+  conversationCrumb: '.ST7X_W_crumb',
+  /** ConversationRoot.tsx: the header's trailing corner seat. */
+  headerCorner: '[data-conversation-header-corner]',
+  /** OpenTargetButton.module.css: the anchor the native application menu hangs from. */
+  openTargetAnchor: '.iq4beG_menuAnchor',
+  /** OpenTargetButton.module.css: the bordered split box that becomes one hit box here. */
+  openTargetSplit: '.iq4beG_split',
+  /** OpenTargetButton.module.css: leading icon half of the native split button. */
+  openTargetMain: '.iq4beG_main',
+  /** OpenTargetButton.module.css: the only control that opens the application menu. */
+  openTargetChevron: '.iq4beG_chevron',
+  /** OpenTargetButton.module.css: the chosen application's own image. */
+  openTargetAppIcon: '.iq4beG_appIcon',
+  /** session-log-export/HeaderAction.module.css: native session action menu. */
+  sessionMoreButton: '.Da3aKq_moreButton',
+  sessionContextMenuButton: '.ST7X_W_headerMenuButton[data-context-menu-trigger]',
+  /**
+   * sidebar-right/ExpandButton.tsx: the collapsed rightbar's only re-entry
+   * control. This plugin no longer styles it: the corner entry shadows it in
+   * that single cell (`features/conversation/header-actions/entries.ts`,
+   * `OVERRIDE_PRIORITY`) and the expand action moves into the Session menu, so
+   * the marker is the pinned record of the control that was displaced — the
+   * thing to re-check against a later build.
+   */
+  sidebarRightExpand: '[data-sidebar-right-expand]',
+  conversationBody: '.ST7X_W_body',
+  assistantMarkdown: '.gKv1-q_root',
+  markdownBody: '._markdown_1ypvv_5:not([data-markdown-variant="compact"])',
+  markdownFileMention: '._fileMention_1ypvv_85',
+  /**
+   * MarkdownText.module.css: the category glyph the host seats inside a URL
+   * anchor (and inside file mentions and URL-promoted inline code). `conversation.css`
+   * hides the anchor's copy; the reference draws link text alone.
+   */
+  markdownLinkIcon: '._linkIcon_1ypvv_94',
+  conversationScroll: '.ST7X_W_scrollBody',
+  /** ChatView.module.css: the transcript's own scroll column, inside the page's
+      scroll viewport, and the two shells of the floating jump-to-bottom control
+      that ChatView renders off the tail. `conversation.css` places and sizes
+      that control; `compat/tool-call-groups.ts` presses it when a fold leaves
+      the reader on the floor. */
+  chatViewScroll: '.icaHSq_scroll',
+  chatViewColumn: '.icaHSq_column',
+  chatViewToBottomSlot: '.icaHSq_toBottomSlot',
+  chatViewToBottom: '.icaHSq_toBottom',
+  composerSeat: '.ST7X_W_composerSeat',
+  composerStack: '.ST7X_W_composerStack',
+  composerRoot: '.yhfFVG_root',
+  composerCard: '[data-composer-card]',
+  composerCardClass: '.yhfFVG_card',
+  /** InputBar.module.css: workspace-less card's dashed ::after picker outline. */
+  composerCardWorkspaceTrigger: '.yhfFVG_cardWorkspaceTrigger',
+  composerScroll: '.yhfFVG_scroll',
+  composerInput: '.yhfFVG_input',
+  /** InputBar.module.css: overlay hint, distinct from the editable text. */
+  composerPlaceholder: '.yhfFVG_placeholder',
+  composerAdd: '.yhfFVG_add',
+  composerPrimary: '.yhfFVG_primary',
+  composerRow: '.yhfFVG_row',
+  composerTools: '.yhfFVG_tools',
+  composerDock: '.yhfFVG_dock',
+  composerTrailing: '.yhfFVG_trailing',
+  /** The draft-image rail the `ui-attachment` plugin renders into the card,
+      above the input panel (composer.css merges it into the input surface). */
+  composerAttachmentRail: '.dVdiKa_rail',
+  /** ComposerAttachments.module.css: the draft image button clips its image. */
+  composerAttachmentThumbnail: '.dVdiKa_thumbnail',
+  /** The Composer's model selector: one trigger carrying both texts. */
+  modelSelectTrigger: '.cl2Rlq_trigger, [data-ccd-model-controls]',
+  modelSelectLabel: '.cl2Rlq_triggerLabel',
+  modelSelectEffort: '.cl2Rlq_triggerEffort',
+  /** PermissionSelect.module.css: compact permission text, keeping its button. */
+  permissionSelectLabel: '.wXeviG_triggerLabel',
+  /** PermissionSelect.module.css: the control itself, in the status bar and in
+      the new-session card alike — `compat/permission-menu.ts` reads the mode's
+      name off it, and writes the card's own wording back. */
+  permissionSelectTrigger: '.wXeviG_trigger',
+  /** PermissionSelect.module.css: the one preset badge DSH marks (`EXP`), on
+      the trigger as well as on the option row it belongs to. */
+  permissionSelectBadge: '.wXeviG_badge',
+  /** PermissionSelect.module.css: the badge row's own name, told apart from the
+      badge beside it — the row label carries both, and only this one is the
+      preset's name. */
+  permissionSelectOptionLabelText: '.wXeviG_optionLabelText',
+  /** TeamAction.module.css: native team dialog entry, retaining its label at every width. */
+  teamActionTrigger: '._2tNPVa_trigger',
+  teamActionLabel: '._2tNPVa_triggerLabel',
+  /** TeamAction.module.css: the panel's own body, the one element of that
+      surface that scrolls. `compat/scroll-pill.ts` tracks it like the four
+      page-level scrollers, so the panel carries the interface's bar too. */
+  teamBody: '._2tNPVa_body',
+  /** AgentPresetLabel.module.css: passive mode description, omitted from the conversation header. */
+  presetModeLabel: '._3li69W_label',
+  /** AgentPresetLabel.module.css: redundant icon may yield space to its text. */
+  presetModeIcon: '._3li69W_icon',
+  statsAnchor: '.OpZ85W_anchor',
+  statsRoot: '.OpZ85W_root',
+  statsLabel: '.OpZ85W_label',
+  statsSeparator: '.OpZ85W_sep',
+  statsPill: '.OpZ85W_pill',
+  contextMeterTrigger: '.y0jqnG_trigger',
+  /**
+   * ContextMeter.module.css: the host's own click-open breakdown panel. It is a
+   * `position: fixed` portal on `document.body` at `z-index: 1100` rather than a
+   * native popover, so this plugin's panel — a top-layer popover — paints over
+   * it; the marker the driver writes is the belt to that braces, and it keeps
+   * the host's panel out of the paint if a click ever reaches DSH's own
+   * handler. `compat/context-panel.ts` is the only reader.
+   */
+  contextMeterPanel: '.y0jqnG_panel',
+  heroRoot: '.bocITq_root',
+  heroHeadline: '.bocITq_headline',
+  heroWorkspaceChip: '.bocITq_workspace',
+  heroWorkspaceRow: '.ST7X_W_heroWorkspaceRow',
+  /** Hero-phase Composer column: the greeting block and the input stack are its
+      children, so the statistics card is appended here and positioned against
+      the greeting. */
+  heroComposerStack: '.ST7X_W_composerStack',
+  /** Shared frontend RiskConfirmation DOM, identical in both desktop builds. */
+  riskConfirmation: '._confirmation_cjd8z_1[role="dialog"]',
+  riskAcknowledgement: '._acknowledgement_cjd8z_38',
+  riskConfirmAction: '._confirmAction_cjd8z_71',
+  riskCancelAction: '._modalAction_cjd8z_67',
+  /** Every menu surface the `Menu` primitive renders, portal or in place. */
+  menu: '[role="menu"]',
+  menuItem: '[role="menuitem"]',
+  /** Menu.module.css: the row's own label seat, the one box this plugin puts a
+      second line after (`compat/permission-menu.ts`). The `_4ub78_` prefix is
+      the static web frontend's bundle, identical in both installers, so it needs
+      no entry in `host-builds.ts` — the same fact `tokens.css` records for the
+      primitive's check mark. */
+  buttonPrimary: '._primary_1rv3m_36',
+  menuItemLabel: '._itemLabel_4ub78_190',
+  /** Menu.module.css: the row's wrapper, button and leading separator. */
+  menuItemWrap: '._itemWrap_4ub78_90',
+  menuItemButton: '._item_4ub78_90',
+  menuSeparator: '._separator_4ub78_80',
+  /** Menu.module.css: the trailing mark a *selected* row draws — `Menu` renders
+      it only for the row whose id is in `selectedIds`, so its presence is how
+      `compat/view-options.ts` reads which option is current. */
+  menuItemCheck: '._check_4ub78_179',
+  /** Menu.module.css: the scrolling row group inside the card — where the
+      permission card's heading is written, above the rows and outside the
+      keyboard's walk (that walk collects `button`s only). */
+  menuViewport: '._viewport_4ub78_19',
+} as const);
+
+/**
+ * Anchors that must exist before a feature may touch the host DOM. They are
+ * stable data attributes rather than hashed class names, so a failed probe
+ * means the frame is not the pinned one and the feature must stay off.
+ */
+export const ANCHOR = Object.freeze({
+  /** ChatNodeSeat / ToolCallTree: immutable transcript seats and atomic calls. */
+  chatFlowItem: '[data-chat-flow-kind]',
+  toolFlow: '[data-chat-flow-kind="tool-call"]',
+  reasoningFlow: '[data-chat-group-part="reasoning"]',
+  toolCall: '[data-chat-call-id]',
+
+  /** ui-chat TurnProcessNodeView / ChatGroupSeat: process containers, not leaf details. */
+  turnProcess: 'button[data-turn-process]',
+  stepProcessToggle: '[data-step-process] > div > button[data-process-activity]',
+  frame: '[data-slot="root"] > div',
+  sidebar: '[data-slot="sidebar"]',
+  workspaces: '[data-slot="sidebar.workspaces"]',
+  /**
+   * Every keyed row of the Workspace browser's tree, including the Session rows
+   * `blank-session-rows.ts` filters. `data-row-key` is the host's own identity
+   * for a row and survives its class hashes; the `empty` placeholder and the
+   * Workspace headers share the attribute with other prefixes.
+   */
+  sessionRows: '[data-row-key^="session:"]',
+  /**
+   * Each Workspace's own row, the first keyed row of its group. `Rows.tsx`
+   * writes it, and `browser-header.ts` reads it to tell a grouped tree from a
+   * flat list before publishing the region's merged-header state.
+   */
+  workspaceRows: '[data-row-key^="workspace:"]',
+  settings: '[data-slot="sidebar.settings"]',
+  conversation: '[data-conversation-content]',
+  /**
+   * AppFrame.tsx: the frame element itself while the right panel's column has no
+   * width. The host writes `data-rightbar-collapsed` from `cols.rightbar === 0`,
+   * so it is the collapsed state's own statement — the header's expand control
+   * reads it rather than a measurement of our own.
+   */
+  rightbarCollapsed: '[data-slot="root"] > div[data-rightbar-collapsed]',
+  /**
+   * AppFrame.tsx: the same frame element while the sidebar's own track is 0.
+   * The host writes `data-sidebar-collapsed` from the layout store, and on the
+   * desktop builds the collapsed sidebar is not a rail — the frame solves its
+   * grid track to 0px and `sidebarCol`'s `overflow: hidden` clips the whole
+   * column. Navigation controls use the host's collapsed state.
+   */
+  sidebarCollapsed: '[data-slot="root"] > div[data-sidebar-collapsed]',
+  /** The element that actually scrolls the Conversation page. In the pinned
+      layout the transcript column inside it is `overflow: visible`, so this is
+      the scroll viewport the edge fade has to describe. */
+  conversationScroll: '[data-conversation-scroll]',
+  composerSeat: '[data-composer-seat]',
+  composerCard: '[data-composer-card]',
+  /**
+   * The blank-session Composer card. `ConversationRoot` (the pinned `.ST7X_W_root`
+   * class, `ConversationMainPanel`) writes `data-phase` on its root and `InputBar`
+   * renders the card inside it; the root class is what keeps this match off the
+   * editor's own `data-phase` input. `conversation.input.overlay` renders only
+   * with a Session, so this is the seat the no-session pet is measured from.
+   */
+  composerCardHero: `${HOST.conversationRoot}[data-phase="hero"] [data-composer-card]`,
+  /**
+   * ConversationRoot.tsx: the conversation body, carrying the Session identity
+   * the context panel reads its projections by. The Composer seat — and so the
+   * context ring — is a descendant, which is what makes `closest()` from the
+   * trigger enough. The host's own stable hook rather than the hashed class.
+   */
+  conversationSession: '[data-conversation-session]',
+} as const);
+
+/** One document's selector table, resolved for the build that document runs. */
+export type HostSelectors = Readonly<Record<keyof typeof HOST, string>>;
+
+/** One document's anchor table, resolved for the build that document runs. */
+export type HostAnchors = Readonly<Record<keyof typeof ANCHOR, string>>;
+
+const selectorTables = new Map<string, HostSelectors>();
+const anchorTables = new Map<string, HostAnchors>();
+
+/** Rewrite every value of one table once per build, then reuse it. */
+function resolveTable<T extends Record<string, string>>(
+  table: T,
+  build: HostBuild,
+  cache: Map<string, T>,
+): T {
+  const known = cache.get(build.id);
+  if (known !== undefined) return known;
+  const resolved = Object.freeze(Object.fromEntries(
+    Object.entries(table).map(([key, value]) => [key, aliasHostSelectors(value, build)]),
+  )) as unknown as T;
+  cache.set(build.id, resolved);
+  return resolved;
+}
+
+/**
+ * The selectors this document's build actually answers to.
+ *
+ * `HOST` above is written against the authored build; a document running
+ * another build needs the same selectors in that build's class names. Read this
+ * once per mount and use the table, rather than mixing the two.
+ * @param document - the renderer document to speak to.
+ */
+export function hostSelectors(document: Document): HostSelectors {
+  return resolveTable(HOST, detectHostBuild(document), selectorTables);
+}
+
+export interface MenuRowClasses {
+  readonly itemWrap: string;
+  readonly item: string;
+  readonly itemLabel: string;
+  readonly separator: string;
+}
+
+/** The `Menu` primitive's row classes, for rows this plugin renders into a host menu. */
+export function menuRowClasses(_document: Document): MenuRowClasses {
+  const name = (selector: string) => {
+    const oldName = selector.slice(1);
+    return [oldName, ...(SHARED_HOST_CLASSES[oldName] ?? [])].join(' ');
+  };
+  return {
+    itemWrap: name(HOST.menuItemWrap),
+    item: name(HOST.menuItemButton),
+    itemLabel: name(HOST.menuItemLabel),
+    separator: name(HOST.menuSeparator),
+  };
+}
+
+/** The anchors of this document's build; see {@link hostSelectors}. */
+export function hostAnchors(document: Document): HostAnchors {
+  return resolveTable(ANCHOR, detectHostBuild(document), anchorTables);
+}
+
+export interface HostProbe {
+  readonly frame: boolean;
+  readonly sidebar: boolean;
+  readonly workspaces: boolean;
+  readonly conversation: boolean;
+  readonly composer: boolean;
+}
+
+/** @param document - the renderer document to probe. */
+export function probeHost(document: Document): HostProbe {
+  const has = (selector: string) => document.querySelector(selector) !== null;
+  return {
+    frame: has(ANCHOR.frame),
+    sidebar: has(ANCHOR.sidebar),
+    workspaces: has(ANCHOR.workspaces),
+    conversation: has(ANCHOR.conversation),
+    composer: has(ANCHOR.composerSeat) && has(ANCHOR.composerCard),
+  };
+}

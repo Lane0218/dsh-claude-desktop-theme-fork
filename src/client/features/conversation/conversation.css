@@ -1,0 +1,1246 @@
+/*
+ * Conversation page: header chrome, transcript column and message surfaces.
+ *
+ * The transcript, its scroll behaviour, tool rendering and approval surfaces
+ * stay entirely DSH's; only width, type and surface colours change. Host
+ * classes are pinned in src/client/compat/host-dom.ts.
+ */
+html[data-dsh-ccd-style="true"] .ST7X_W_root {
+  container: ccd-conversation / inline-size;
+}
+
+/* ChangedFiles is the host's completed-turn summary, separate from explicitly
+   delivered files and the tool calls that performed the edits. */
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] {
+  display: flex;
+  margin-top: 12px;
+  border: 1px solid var(--ccd-border);
+  border-radius: 10px;
+  background: var(--ccd-card);
+  color: var(--ccd-text);
+  overflow: hidden;
+}
+
+/* Keep message clocks and actions quiet, including the latest reply that the
+   host otherwise always reveals. The final assistant step and its turn tail
+   are adjacent flow items, so hovering the reply reveals only its own strip.
+   Only the action strip itself keeps the actions revealed in the tail; the
+   signature and the surrounding blank space must not reveal them. Keep the
+   occupied space and keyboard access; touch devices retain actions. */
+@media (hover: hover) {
+  html[data-dsh-ccd-style="true"] :is(.IzP3Va_userRow, [data-turn-tail]) [data-clock] {
+    opacity: 0;
+    pointer-events: auto;
+  }
+
+  html[data-dsh-ccd-style="true"] .IzP3Va_userRow:is(:hover, :focus-within) [data-clock],
+  html[data-dsh-ccd-style="true"] [data-turn-tail] [data-clock]:is(:hover, :focus-within),
+  html[data-dsh-ccd-style="true"] [data-chat-flow-kind="assistant-step"]:has(.gKv1-q_body:hover) + [data-chat-flow-kind="turn-tail"] [data-clock] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* MessageIconActions exposes data-clock="end" on assistant action strips.
+   Keep the native actions and feedback slot, with Claude-sized icon seats. */
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-clock="end"] {
+  height: 24px;
+  gap: 0;
+  margin-top: 4px;
+  margin-left: -4px;
+}
+
+/* compat/reply-signature.ts seats this static mark only at the latest settled reply.
+   The mask is DSH's RunningWhaleTail REST_PATH (16 × 16). */
+html[data-dsh-ccd-style="true"] .ccd-reply-signature {
+  display: block;
+  flex: none;
+  align-self: flex-start;
+  width: 18px;
+  height: 18px;
+  margin-top: 8px;
+  pointer-events: none;
+}
+
+html[data-dsh-ccd-style="true"] .ccd-reply-signature::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--ccd-pet-blue);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M8.844 13.742C8.967 12.328 8.45 10.4 8.45 9.65C8.45 8.94 8.88 8.43 9.6 8.43C11.285 8.43 12.106 8.281 12.685 8.104C13.71 7.791 14.585 6.768 15.055 5.945C15.137 5.803 14.99 5.641 14.829 5.671C13.829 5.86 12.828 5.376 11.827 4.978C10.659 4.514 9.491 4.707 8.935 4.876C8.805 4.915 8.658 4.819 8.636 4.686C8.468 3.643 7.405 2.615 5.498 2.238C4.54 2.048 3.748 1.574 3.347 1.202C3.252 1.113 3.088 1.125 3.03 1.242C2.628 2.059 2.168 3.82 5.248 6.115C5.82 6.494 6.31 6.785 6.574 7.637C6.72 8.104 6.157 9.168 6.061 9.368C5.157 11.27 5.089 12.19 4.926 13.742' stroke='black' stroke-width='1'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+html[data-dsh-ccd-style="true"] .ccd-reply-signature-claude::before,
+html[data-dsh-ccd-style="true"] .ccd-running-star::before {
+  background: var(--ccd-claude-coral);
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M4.709%2015.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0%2011.784l.055-.352.48-.321.686.06%201.52.103%202.278.158%201.652.097%202.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686%201.908%201.476%202.491%201.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97%202.97%200%2001-.104-.729L6.283.134%206.696%200l.996.134.42.364.62%201.414%201.002%202.229%201.555%203.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286%201.851-.559%202.903-.364%201.942h.212l.243-.242.985-1.306%201.652-2.064.73-.82.85-.904.547-.431h1.033l.76%201.129-.34%201.166-1.064%201.347-.881%201.142-1.264%201.7-.79%201.36.073.11.188-.02%202.856-.606%201.543-.28%201.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061%201.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093%201.068%202.006%201.81%202.509%202.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649%202.345%203.521.122%201.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674%207.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434%201.967-2.18%202.945-1.726%201.845-.414.164-.717-.37.067-.662.401-.589%202.388-3.036%201.44-1.882.93-1.086-.006-.158h-.055L4.132%2018.56l-1.13.146-.487-.456.061-.746.231-.243%201.908-1.312-.006.006z%22%2F%3E%3C%2Fsvg%3E");
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-clock="end"] button:has(> svg:only-child) {
+  box-sizing: border-box;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 4px;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-clock="end"] button:has(> svg:only-child) > svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* MessageIconActions' final span groups token usage and the completion time. */
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-clock="end"] > span:last-child {
+  gap: 6px;
+  margin-left: 6px;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-clock="end"] button[aria-haspopup="dialog"] {
+  box-sizing: border-box;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  justify-content: center;
+  gap: 0;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-clock="end"] button[aria-haspopup="dialog"] > svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Preserve the localized usage label as the button's accessible name. */
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-clock="end"] button[aria-haspopup="dialog"] > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* TurnUsagePanel portals to body. Its details hook identifies this dialog
+   without touching session statistics or the host's anchored positioning. */
+html[data-dsh-ccd-style="true"] [role="dialog"]:has(> [data-turn-usage-details]) {
+  box-sizing: border-box;
+  width: min(340px, calc(100vw - 24px));
+  min-width: 0;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  padding: 14px 16px;
+  border: .5px solid var(--ccd-view-menu-border);
+  border-radius: 12px;
+  background: var(--ccd-card);
+  box-shadow: var(--ccd-view-menu-shadow);
+  backdrop-filter: none;
+  color: var(--ccd-text-secondary);
+  font: 400 12px/18px var(--ccd-font-ui);
+}
+
+html[data-dsh-ccd-style="true"] [role="dialog"]:has(> [data-turn-usage-details]) > div:first-child {
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--ccd-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] [role="dialog"]:has(> [data-turn-usage-details]) > div[aria-hidden="true"] {
+  margin-bottom: 12px;
+  border-top-color: var(--ccd-border);
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-usage-details] {
+  grid-template-columns: minmax(76px, auto) minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+  color: var(--ccd-text-secondary);
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-usage-details] > dd {
+  color: var(--ccd-text);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-usage-details] > dd > span {
+  display: block;
+  color: var(--ccd-text-muted);
+  font-size: 11px;
+  white-space: normal;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_header {
+  background: var(--ccd-canvas);
+  color: var(--ccd-text);
+  /*
+   * The reference has no rule between the header and the transcript — the two
+   * read as one page. The host draws a hairline here (`border-bottom: .5px
+   * solid`), so it is painted out rather than removed: keeping the border's
+   * width leaves the header's own height untouched.
+   */
+  border-bottom-color: transparent;
+  /* Title, native View tabs and utilities share a single row. React's title
+     wrappers dissolve without moving their children. */
+  display: flex;
+  align-items: center;
+  /* Let the actual title controls and native tabs determine the height. */
+  min-height: 0;
+  padding: 10px var(--ccd-header-trailing-inset) 10px 12px;
+  /*
+   * Where the Composer's input surface ends, measured from the column's right
+   * edge in the numbers that draw it, for the narrow-column rules below: the
+   * Composer root's own side clearance (`theme/composer.css` pins the host's
+   * `--dsh-composer-side-clearance` at 16px), the stable scrollbar gutter the
+   * page's scroll viewport reserves (`ST7X_W_scrollBody { scrollbar-gutter:
+   * stable }` over the theme's 5px `--dsh-scrollbar-width` track) and that
+   * viewport's own `margin-right: 2px`.
+   */
+  --ccd-composer-trailing-edge: calc(
+    var(--dsh-composer-side-clearance, 16px) + var(--dsh-scrollbar-width, 5px) + 2px);
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerBlank {
+  /* Blank Sessions keep the single-row height they had as a grid row. */
+  min-height: 40px;
+  padding-bottom: 0;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_root:not(:has([data-conversation-session])) .ST7X_W_header {
+  min-height: 50px;
+}
+
+/* Title controls and View tabs share the traffic lights' 25px centre line. */
+/* Only macOS shares the conversation header with the window drag surface.
+   The host excludes its controls from dragging only on darwin; Windows has a
+   separate caption strip, so making this row draggable swallows button clicks. */
+html[data-dsh-ccd-style="true"][data-platform="darwin"] .ST7X_W_header {
+  -webkit-app-region: drag;
+}
+
+html[data-dsh-ccd-style="true"][data-platform="darwin"] .ST7X_W_root:has([data-conversation-session]) .ST7X_W_header {
+  min-height: 40px;
+  padding-bottom: 0;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_titleRow,
+html[data-dsh-ccd-style="true"] .ST7X_W_titleCluster {
+  display: contents;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_crumbs {
+  /* Long names yield space to the native View controls and window chrome. */
+  flex: 0 1 auto;
+  box-sizing: border-box;
+  max-width: calc(112px + max(0px, var(--dsh-frame-leading-clearance, 0px) - 12px));
+  padding-inline-start: max(0px, calc(var(--dsh-frame-leading-clearance, 0px) - 12px));
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerActions {
+  order: 2;
+  /* The title supplies 8px end padding; the team entry adds the group gap.
+     The flexible trailing margin keeps utilities at the column's right edge. */
+  margin-left: var(--ccd-header-group-gap, 2px);
+  gap: 4px;
+  margin-right: auto;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities {
+  order: 3;
+  margin-left: 0;
+  /* One uniform gap, so every visible space in the cluster is equal. */
+  gap: var(--ccd-header-action-gap);
+  --ccd-header-control-size: var(--ccd-header-action-size);
+}
+
+/*
+ * The corner seat is retired, and the utilities group owns the trailing edge.
+ *
+ * That single cell's shipped occupant is `ui-sidebar-right`'s collapsed-panel
+ * expand control, which this interface does not draw; the plugin shadows it with
+ * the blank page's view buttons and keeps the expand action in the Session menu
+ * instead. On active Sessions the corner is hidden, so the seat has no
+ * box of its own to place — its own gap in front of the utilities would be 2px
+ * of trailing space after the last control, and the reference measures the
+ * cluster's inset from the header's own padding. Blank Sessions place their
+ * three view buttons at the trailing edge through `header-actions.css`.
+ */
+html[data-dsh-ccd-style="true"] .ST7X_W_headerCorner {
+  margin: 0;
+}
+
+/* DSH measures this row to choose which registered views fit. */
+html[data-dsh-ccd-style="true"] .ST7X_W_header .ST7X_W_tabs {
+  order: 2;
+  flex: 1 0 118px;
+  width: auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0 12px 0 8px;
+  padding: 0;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_viewTabs {
+  flex-wrap: nowrap;
+  gap: 12px;
+  min-height: 28px;
+  pointer-events: auto;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_tabs .ST7X_W_viewsMoreAnchor {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  pointer-events: auto;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_tabs .ST7X_W_viewsMore {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  width: 22px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_tabs .ST7X_W_tab {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 26px;
+  height: 28px;
+  min-height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ccd-text-secondary);
+  font-family: var(--ccd-font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 28px;
+  pointer-events: auto;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_tabs .ST7X_W_tab:hover {
+  color: var(--ccd-text);
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_tabs .ST7X_W_tab[aria-selected="true"] {
+  color: var(--ccd-link);
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_tabs .ST7X_W_tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_tabs .ST7X_W_tab[aria-selected="true"]::after {
+  background: currentColor;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_crumbs,
+html[data-dsh-ccd-style="true"] .ST7X_W_crumb {
+  color: var(--ccd-text);
+  font-size: var(--ccd-font-size-muted);
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_crumb {
+  max-width: 100%;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerActions button,
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities button {
+  color: var(--ccd-text-secondary);
+}
+
+/* Keep the actionable team entry complete; omit the passive header mode. */
+html[data-dsh-ccd-style="true"] .ST7X_W_headerActions ._2tNPVa_triggerLabel {
+  display: inline;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerActions ._3li69W_label {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerActions ._2tNPVa_trigger {
+  padding-inline: 0;
+}
+
+/*
+ * Trailing action cluster. Every control takes the same square hit box, so the
+ * visible gaps between glyphs are equal rather than only the box gaps: the
+ * previous build zeroed the host's `gap` and shrank single controls, which left
+ * ~7px after the split button but ~14px after the 24px menu button. Geometry is
+ * declared once in theme/tokens.css. The host's own 15px artwork stays native
+ * inside these boxes; the plugin only paints the three glyphs below.
+ *
+ * The renderer wraps every list entry in a `display: contents` seat
+ * (`[data-slot="conversation.session.header.utilities"]`), so the boxes are the
+ * seat's children — the seat itself has no box to size. (The corner seat is
+ * retired and holds nothing: see the rule above.)
+ *
+ * `[role="tooltip"]` is named out because a seat's children are not always
+ * controls. `ui-primitives`' `Tooltip` clones its anchor and renders its bubble
+ * as a *sibling* of it, inside the same React fragment — which lands both nodes
+ * in the seat. Sizing that bubble to the control box clipped it to one glyph
+ * and a half the moment it appeared; the bubble keeps its own geometry on
+ * every hover.
+ */
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities > [data-slot] > *:not([role="tooltip"]) {
+  box-sizing: border-box;
+  flex: none;
+  width: var(--ccd-header-control-size);
+  height: var(--ccd-header-control-size);
+  border-radius: var(--ccd-radius-row);
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities :is(.Da3aKq_moreButton, .ST7X_W_headerMenuButton) {
+  padding: 0;
+}
+
+/*
+ * The "open in app" control becomes one generic glyph whose whole box opens the
+ * native application menu. The chevron half — the only control that opens that
+ * menu — is stretched over the split box as the hit area, while the application
+ * image and the chevron glyph are replaced by shared artwork. The host keeps the
+ * menu, its items, its icon route and its callbacks; `compat/open-target.ts`
+ * marks the no-menu state, which hides this control instead of direct-opening.
+ */
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .iq4beG_split {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .iq4beG_chevron {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .iq4beG_chevron svg {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .iq4beG_chevron:hover:not(:disabled),
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .iq4beG_chevron:focus-visible,
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .iq4beG_main:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .iq4beG_main {
+  width: 100%;
+  height: 100%;
+  gap: 0;
+  padding: 0;
+  color: var(--ccd-text-secondary);
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .iq4beG_main > * {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .iq4beG_main::before {
+  content: "";
+  width: var(--ccd-header-icon-size);
+  height: var(--ccd-header-icon-size);
+  background-color: currentColor;
+  mask: var(--ccd-icon-open) center / var(--ccd-header-icon-size) var(--ccd-header-icon-size) no-repeat;
+}
+
+/* No application menu exists (a directory with at most one candidate): a chooser
+   glyph would promise what the host cannot show, so the control stays away. */
+html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities [data-ccd-open-mode="direct"] {
+  display: none;
+}
+
+/* When the Composer fills a narrow column, centre the last header control
+ * on the input's trailing edge. Keep the smaller inset throughout the narrow
+ * range so dragging the transcript width does not shift the header. */
+@container ccd-conversation (max-width: 810px) {
+  html[data-dsh-ccd-style="true"] .ST7X_W_header {
+    padding-right: min(
+      var(--ccd-header-trailing-inset),
+      calc(var(--ccd-composer-trailing-edge) - var(--ccd-header-action-size) / 2));
+  }
+}
+
+/* Very narrow columns keep every control on the collapsed macOS shell's 24px
+   box, so the same edge is taken against the smaller box: half of it is 2px
+   less, and the cluster's last control stays centred on the input surface's
+   border. */
+@container ccd-conversation (max-width: 520px) {
+  html[data-dsh-ccd-style="true"] .ST7X_W_header {
+    padding-right: min(
+      var(--ccd-header-trailing-inset),
+      calc(var(--ccd-composer-trailing-edge) - var(--ccd-header-action-compact) / 2));
+  }
+
+  html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities {
+    --ccd-header-control-size: var(--ccd-header-action-compact);
+  }
+}
+
+/* Leave room between the final message/signature and the Composer stack. */
+html[data-dsh-ccd-style="true"] .icaHSq_scroll {
+  padding-top: 16px;
+  padding-bottom: 48px;
+}
+
+/* Center and size the host's jump-to-bottom control.
+ * Source: ui-chat/ChatView.module.css, HOST.chatViewToBottomSlot/toBottom.
+ * Negative margin follows the button size to retain its gap above Composer.
+ */
+html[data-dsh-ccd-style="true"] .icaHSq_toBottomSlot {
+  justify-content: center;
+  padding-right: 0;
+}
+
+html[data-dsh-ccd-style="true"] .icaHSq_toBottom {
+  width: var(--ccd-to-bottom-size);
+  height: var(--ccd-to-bottom-size);
+  margin-top: calc(-1 * var(--ccd-to-bottom-size));
+}
+
+/* Paint edge gradients on the page body above the transcript and below
+ * sticky Composer. conversation-fade.ts publishes scroll flags and the bottom
+ * inset; the lower overlay covers Composer's full footprint. Since Composer
+ * is inside the scroller, the gradient belongs on this separate layer.
+ */
+html[data-dsh-ccd-style="true"] .ST7X_W_body::before,
+html[data-dsh-ccd-style="true"] .ST7X_W_body::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--ccd-edge-fade);
+  background: var(--ccd-canvas);
+  pointer-events: none;
+  /* Above the transcript, below the Composer seat (7) and the jump-to-bottom
+     control (8) so neither is veiled. */
+  z-index: 1;
+  opacity: 0;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_body::before {
+  top: 0;
+  background: linear-gradient(to bottom, var(--ccd-canvas), transparent);
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_body::after {
+  bottom: 0;
+  height: calc(var(--ccd-fade-bottom-inset, 0px) + var(--ccd-edge-fade));
+  background: linear-gradient(
+    to top,
+    var(--ccd-canvas) 0,
+    var(--ccd-canvas) calc(100% - var(--ccd-edge-fade)),
+    transparent 100%
+  );
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_body:has([data-conversation-scroll][data-ccd-fade-top])::before {
+  opacity: 1;
+}
+
+html[data-dsh-ccd-style="true"] .ST7X_W_body:has([data-conversation-scroll][data-ccd-fade-bottom])::after {
+  opacity: 1;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root {
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: 24px;
+  color: var(--ccd-text);
+}
+
+/* Official MarkdownText in assistant replies only. Compact reasoning/tool
+   Markdown, user references and the Composer retain their own presentation.
+   Sources and static-library class names are pinned in compat/host-dom.ts. */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) {
+  font-family: var(--ccd-font-ui);
+  font-size: inherit;
+  /* The host runs the assistant body at 14px/24px; the reference runs the same
+     14px on a 20px line, which is what its paragraphs and its paragraph gaps
+     are measured against. Reasoning and tool Markdown (`[data-markdown-variant
+     ="compact"]`) keep the host's own leading. */
+  line-height: var(--ccd-transcript-line-height);
+  color: var(--ccd-text);
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) :is(a, ._fileMention_1ypvv_85) {
+  max-width: 100%;
+  color: var(--ccd-link);
+  font-weight: 500;
+  text-decoration-line: underline;
+  text-decoration-style: solid;
+  text-decoration-color: var(--ccd-link-underline);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) :is(a, ._fileMention_1ypvv_85):is(:hover, :focus) {
+  text-decoration-color: var(--ccd-link);
+}
+
+/*
+ * Render URL and file links as text alone. The host uses `.linkIcon` for
+ * category glyphs inside anchors and file mentions; hiding it also removes
+ * its margin while preserving the link text, underline and click behavior.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) :is(a, ._fileMention_1ypvv_85) ._linkIcon_1ypvv_94 {
+  display: none;
+}
+
+/* Limit chips to the text column so long identifiers can wrap inside them.
+   The host uses !important for its code-size ratio, so this override must too.
+   The fenced block is not a chip: it takes its own rule below. */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) :not(pre) > code {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: baseline;
+  font-family: var(--ccd-font-code);
+  font-size: 0.95em !important;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ccd-inline-code-text);
+  background: var(--ccd-inline-code-fill);
+  border: 1px solid var(--ccd-inline-code-border);
+  border-radius: 5px;
+  padding: 0 4px;
+  overflow-wrap: anywhere;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) strong {
+  font-weight: var(--ccd-font-weight-strong);
+}
+
+/*
+ * Headings. The host draws the transcript's h1/h2/h3 at 21/19/18px inside a
+ * 32px top and 16px bottom margin, a full step larger and a good deal looser
+ * than the reference: its crop measures a 19px h1 and a 16px h2 (the tokens in
+ * `theme/tokens.css` carry that measurement), and the ink between two stacked
+ * headings is 20 device px against this plugin's 68. The margin below is what
+ * puts that gap back — the collapsed 8px plus each heading's own half-leading
+ * lands within a couple of device px of the reference at @2x. h4-h6 keep the
+ * host's size (body size, weight 600) and take the same rhythm.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) :is(h1, h2, h3) {
+  margin: 8px 0 6px;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) h1 {
+  font-size: var(--ccd-font-size-h1);
+  line-height: 26px;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) h2 {
+  font-size: var(--ccd-font-size-h2);
+  line-height: 22px;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) h3 {
+  font-size: var(--ccd-font-size-h3);
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) :is(h4, h5, h6) {
+  margin: 10px 0 6px;
+}
+
+/*
+ * Block rhythm. The host spaces the transcript's blocks at 16px. The reference
+ * runs tighter around prose and quotes — its crop puts a paragraph-to-quote and
+ * a quote-to-list run at 18 device px of ink, which is ~7-10px of collapsed
+ * margin once each block's half-leading is taken off — while its lists and its
+ * table and code cards keep the host's step. Only the two that differ move;
+ * list items keep the host's own 8px rhythm.
+ *
+ * The list guard is written on the paragraph — `p:not(li p)` — and not as a
+ * `:not(li) > p` child of the root: a paragraph in this DOM is the root's own
+ * child, and a descendant combinator there asks for a parent *below* the root,
+ * so it matched nothing but the paragraphs nested one level deeper (a quote's)
+ * and every top-level paragraph kept the host's 16px.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) p:not(li p) {
+  margin: 10px 0;
+}
+
+/*
+ * Blockquote. The host draws a 2px rule in `--dsw-alias-label-caption` — its
+ * own mid grey — and leaves the text at full body ink, so a quote reads as an
+ * indented paragraph rather than as a quote. The reference draws a 4px rule in
+ * the same value as this plugin's outline token, with its text one step down in
+ * ink (this plugin's secondary step, against a body that stays near-black). The
+ * rule-to-text distance matches in both (27 and 29 device px), so only the
+ * rule's weight, its colour and the text's ink move.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) blockquote {
+  margin: 10px 0;
+  border-left: 4px solid var(--ccd-border);
+  padding-left: 15px;
+  color: var(--ccd-text-secondary);
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) hr {
+  /* The host spaces the rule at 32px on each side; the reference's crop puts
+     its card-rule-copy run at 71 device px of ink, which is ~20px a side. */
+  margin: 20px 0;
+}
+
+/*
+ * List rhythm. The host sizes its marker's own line at the 24px it used to draw
+ * the body at, so the marker box stands a step taller than the transcript's
+ * leading and stretches every list row to 22px — the item pitch lands at 28
+ * where the reference's own rows measure 26 (its 40 device px at 1.53). The
+ * marker rides the item's line instead, which is what a browser that sets no
+ * marker line at all would do.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) li::marker {
+  line-height: inherit;
+}
+
+/*
+ * Task lists. The host leaves the list marker in place, so a `- [x]` row draws
+ * "• ☑ label" where the reference draws the checkbox alone, and its 6px
+ * inter-item margin — which the reference's own rows do not carry — widens the
+ * pitch to 46 device px against the reference's 35. The marker goes and the
+ * margin goes with it; the checkbox itself already matches (the reference's
+ * fill measures the same 20 device px in the host's grey accent).
+ *
+ * The checkbox sits directly in the item in a tight list and inside the item's
+ * paragraph in a loose one, so both shapes are named.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) :is(li:has(> input[type="checkbox"]), li:has(> p:first-child > input[type="checkbox"])) {
+  list-style: none;
+  margin-top: 0;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) input[type="checkbox"] {
+  /* The host's 8px trailing margin leaves 20 device px before the label where
+     the reference leaves 10. */
+  margin-right: 6px;
+}
+
+/*
+ * Fenced code blocks take the reference's outlined card: a white fill inside a
+ * single hairline, replacing the host's cool wash. The host paints three nested
+ * surfaces with that wash — the wrapper, the language banner and `pre` itself —
+ * and the banner's outer wrapper falls back to the page token, so every one of
+ * them is repainted here; leaving any single layer would show a grey band.
+ *
+ * `data-code-wrap` is a stable host anchor (the class list also carries
+ * `md-code-block`); the inner layers are reached through it so no hashed class
+ * name is repeated here.
+ *
+ * The card is also a *row*, because the reference's is. Its one-line fence
+ * draws as a single 33px-tall card (50 device px at @2x) that hugs its content —
+ * code first, the copy control (and the wrap toggle, and the run control on a
+ * shell fence) trailing it — and floors at 320px, which is why its own short
+ * `npm run check` card carries a wide gap between the code and its controls.
+ * The host instead fills the column and stacks a 36px language banner over a
+ * `pre` padded `6px 22px 20px`, which is 135 device px for that same one line.
+ *
+ * So the block becomes a flex row with the banner reversed behind the code: the
+ * banner's controls ride the first code line, the `pre` takes the row's spare
+ * width (pushing those controls to the trailing edge exactly as the reference's
+ * floored card does) and the column stays the ceiling. `min(320px, 100%)` keeps
+ * a narrow transcript from being pushed out by the floor.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) [data-code-wrap] {
+  box-sizing: border-box;
+  border: 1px solid var(--ccd-border);
+  border-radius: var(--ccd-code-radius);
+  background: var(--ccd-card);
+  display: flex;
+  /* The banner is the DOM's first child; the code reads first. */
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  width: fit-content;
+  min-width: min(320px, 100%);
+  max-width: 100%;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) [data-code-wrap] > *,
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) [data-code-wrap] [data-code-block-banner],
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) [data-code-wrap] pre {
+  /* The card owns the surface now; the layers inside it only carry text. */
+  background: transparent;
+  border-radius: 0;
+}
+
+/*
+ * The banner stops being a row above the code. Its wrapper is the sticky
+ * scroller that used to pin the language row to the top of a tall card; in a
+ * row it is the card's trailing control strip, seated on the first code line
+ * (31px = the `pre`'s 6px padding over the host's 19px code line), which is the
+ * whole card when the fence is one line. The host's own compact variant
+ * neutralises the same wrapper the same way.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) [data-code-wrap] > :has(> [data-code-block-banner]) {
+  position: static;
+  z-index: auto;
+  display: flex;
+  align-items: center;
+  height: 31px;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) [data-code-wrap] [data-code-block-banner] {
+  width: 100%;
+  /* 11px, not 12: the card's own 1px outline sits outside this padding and the
+     reference measures its 18 device px from the card's outer edge. */
+  padding: 0 11px 0 0;
+  font: inherit;
+}
+
+/*
+ * The language label is not painted: the reference's card shows the code and its
+ * controls alone, and its short card is 320px wide for 90px of code precisely
+ * because nothing else sits in that row. The label is the banner's leading
+ * group in both of the host's toolbar shapes, so it is named structurally
+ * rather than by its hashed class; the copy and wrap controls, their labels and
+ * the run control on a shell fence all stay.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) [data-code-wrap] [data-code-block-banner] > :first-child {
+  display: none;
+}
+
+/*
+ * The code keeps the host's 19px line and takes the reference's size (one step
+ * under the body, where the host draws it at 11px) and its padding: the
+ * reference holds the line with ~6px above and below and 16px of leading inset
+ * (26 device px at @2x), against the host's `6px 22px 20px`. `min-width: 0`
+ * lets the code shrink below its own content when the wrap toggle is off.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) [data-code-wrap] pre {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 16px;
+  font-size: var(--ccd-font-size-muted);
+}
+
+/*
+ * Tables: one rounded card, as in the reference. The host collapses borders,
+ * takes every cell's leading padding away (`padding: 10px 16px 10px 0`) and
+ * leaves the row rule to each cell, so a card that can carry a radius needs
+ * separate borders, one outline of its own and its own cell padding. The head
+ * keeps a filled surface and a rule one step darker than the outline; body rows
+ * are separated by hairlines, and the card's own edge closes the last one.
+ * Column alignment markers stay the host's business.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) table {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid var(--ccd-border);
+  border-radius: var(--ccd-table-radius);
+  border-collapse: separate;
+  border-spacing: 0;
+  /* The head fill and the row rules are painted by the cells, so the card has
+     to clip them to its own radius. */
+  overflow: hidden;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) :is(th, td) {
+  /* The host sizes table text one step below the transcript; the reference
+     keeps a table at body size. Its row is 33px — the transcript's 20px line
+     with 6px above and below, which is the 51 device px both shots measure —
+     so the cells keep the body leading and pay the difference in padding. */
+  font-size: inherit;
+  line-height: inherit;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--ccd-border);
+  vertical-align: middle;
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) thead th {
+  background: var(--ccd-raised);
+  border-bottom-color: var(--ccd-table-head-line);
+  color: var(--ccd-text);
+  font-weight: var(--ccd-font-weight-strong);
+}
+
+html[data-dsh-ccd-style="true"] .gKv1-q_root ._markdown_1ypvv_5:not([data-markdown-variant="compact"]) tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+
+/*
+ * Wide tables stay inside the content column.
+ *
+ * The host marks every table of four columns or more `md-table-wide`
+ * (AssistantMarkdown.module.css) and bleeds that wrapper out to the scroller's
+ * full width through `--dsh-table-spare`／`--dsh-table-lead`, pinning the table's
+ * leading edge back to the column with a negative margin and a matching leading
+ * pad. In the host's own geometry the Composer card is 32px wider than the
+ * column, so the borrowed width lands inside its edges; here the card and the
+ * column are the same width, and a bleeded table left the card and the Composer
+ * on different right edges (measured +86px at the reference window, growing with
+ * the view area). Dropping the bleed keeps the table on the column; a table
+ * whose rows cannot wrap far enough still scrolls horizontally. Keep overflow
+ * and bottom padding identical at rest, on hover and on keyboard focus: the
+ * host swaps a 5px pad for a scrollbar on hover, but our scrollbar is 6px,
+ * shifting everything below the table when that swap happens.
+ */
+html[data-dsh-ccd-style="true"] .gKv1-q_root .gKv1-q_body .md-table-wide {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin-left: 0;
+  padding-left: 0;
+  overflow-x: auto;
+  padding-bottom: 0;
+}
+
+html[data-dsh-ccd-style="true"] .icaHSq_column {
+  --dsh-chat-flow-gap: 10px;
+}
+
+/* User message: soft raised bubble, as in the reference. */
+html[data-dsh-ccd-style="true"] :is(.IzP3Va_bubble, [data-message-bubble]) {
+  padding: 7px 14px;
+  border-radius: var(--ccd-composer-radius);
+  background: var(--ccd-raised);
+  color: var(--ccd-text);
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: 22px;
+}
+
+html[data-dsh-ccd-style="true"] .IzP3Va_userStack {
+  max-width: min(calc(var(--dsh-chat-content-width) * 0.72), 82%);
+  gap: 6px;
+}
+
+/* Tool and reasoning rows: quiet single lines. */
+html[data-dsh-ccd-style="true"] .Q2dzhW_root,
+html[data-dsh-ccd-style="true"] .HiSsxa_root,
+html[data-dsh-ccd-style="true"] .-gRAhq_root {
+  color: var(--ccd-text-secondary);
+  font-size: var(--ccd-font-size-body);
+}
+
+/* Native clock keeps ticking behind the optional Claude presentation. */
+html[data-dsh-ccd-style="true"] [data-ccd-running-style="claude"] > :not(.ccd-running-content) {
+  display: none !important;
+}
+
+html[data-dsh-ccd-style="true"] .ccd-running-content {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--ccd-text-secondary);
+  font: 400 12px/24px var(--ccd-font-ui);
+  font-variant-numeric: tabular-nums;
+  white-space: pre-wrap;
+}
+
+html[data-dsh-ccd-style="true"] .ccd-running-star {
+  display: inline-flex;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-inline-end: 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+html[data-dsh-ccd-style="true"] .ccd-running-star::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  animation: ccd-star-breathe 1.2s cubic-bezier(.45, 0, .55, 1) infinite;
+}
+
+/* A quick 360ms contraction, followed by a gentler spread; no spin. */
+@keyframes ccd-star-breathe {
+  0%, 100% { transform: scale(1, 1); }
+  30% { transform: scale(.54, .62); }
+  72% { transform: scale(.9, .85); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-dsh-ccd-style="true"] .ccd-running-star::before { animation: none; }
+}
+
+/* Completed-turn file summary. The host owns file previews, review navigation,
+   localized counts and its list fold; the footer forwards the native header. */
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] button[class*="_header"] {
+  height: auto;
+  min-height: 32px;
+  padding: 6px 12px;
+  background: transparent;
+  gap: 8px;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] [class*="_title"] {
+  font: 400 13px/20px var(--ccd-font-ui);
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files]:not([data-single="true"]) button[class*="_header"] :is([class*="_tile"], [class*="_stat"]) {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] > ul {
+  padding: 4px 0 0;
+  border-top: 1px solid var(--ccd-border);
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] ul button[class*="_row"] {
+  width: calc(100% - 6px);
+  margin-inline: 3px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  gap: 8px;
+  color: var(--ccd-text);
+  font: 14px/20px var(--ccd-font-ui);
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] ul [class*="_path"] {
+  flex: 1;
+  font: inherit;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] :is([data-ccd-changes-icon], [class*="_tile"]) {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] :is([data-ccd-changes-icon], [class*="_tile"]) svg {
+  width: 16px;
+  height: 16px;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] :is([class*="_counts"], [class*="_statCounts"]) {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  font: 12px/20px var(--ccd-font-code);
+}
+
+/* Native list expansion uses the same compact row as files and review,
+   instead of the host's full-width grey footer strip. */
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] > button[class*="_toggle"] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  box-sizing: border-box;
+  width: calc(100% - 6px);
+  height: auto;
+  min-height: 28px;
+  margin: 0 3px 3px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ccd-text);
+  font: 14px/20px var(--ccd-font-ui);
+  text-align: start;
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] > button[class*="_toggle"] svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] > button[class*="_toggle"]:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--ccd-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] > button[class*="_toggle"]:focus-visible {
+  outline: 2px solid var(--ccd-text-muted);
+  outline-offset: -3px;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] [data-ccd-changes-review] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: relative;
+  box-sizing: border-box;
+  width: calc(100% - 6px);
+  min-height: 28px;
+  margin: 0 3px 3px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ccd-text);
+  font: 14px/20px var(--ccd-font-ui);
+  text-align: start;
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] [data-ccd-changes-review]:hover:not(:disabled) {
+  background: var(--ccd-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] [data-ccd-changes-review]:focus-visible {
+  outline: 2px solid var(--ccd-text-muted);
+  outline-offset: -3px;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] [data-ccd-changes-review]:disabled {
+  cursor: progress;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files][data-single="true"] [class*="_titles"] {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files][data-single="true"] [class*="_stat"] {
+  margin-inline-start: auto;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] [class*="_previewHint"] {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] :is(ul button[class*="_row"], [data-ccd-changes-review]) {
+    min-height: 44px;
+  }
+}
+
+/* Single-file summaries share the same heading / file row / footer layout.
+   The original header remains the file row, preserving its hover preview. */
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] [data-ccd-changes-heading] {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--ccd-border);
+  color: var(--ccd-text);
+  font: 400 13px/20px var(--ccd-font-ui);
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files][data-ccd-changes-single] button[class*="_header"] {
+  width: calc(100% - 6px);
+  min-height: 28px;
+  margin: 4px 3px 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files][data-ccd-changes-single] button[class*="_header"] > [class*="_titles"] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] [data-ccd-changes-single-name] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 14px/20px var(--ccd-font-ui);
+}
+
+/* The reference footer has an inset hover seat and a short, arrowless hint.
+   Its accessible description is supplied alongside the visual text. */
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] [data-ccd-changes-review]::after {
+  content: attr(data-ccd-changes-tooltip);
+  position: absolute;
+  z-index: 2;
+  inset-inline-start: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  max-width: calc(100% - 16px);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--ccd-text-strong);
+  color: var(--ccd-text-inverse);
+  box-shadow: var(--ccd-dialog-shadow);
+  font: 13px/20px var(--ccd-font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 100ms ease, visibility 100ms ease;
+}
+
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] [data-ccd-changes-review]:is(:hover, :focus-visible):not(:disabled)::after {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 300ms;
+}
+
+/* File rows use the same inset rounded hover seat as the review footer. Native
+   row buttons and their hover-preview wrappers retain the original handlers. */
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files] ul button[class*="_row"]:is(:hover, :focus-visible):not(:disabled),
+html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files][data-ccd-changes-single] button[class*="_header"]:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--ccd-hover);
+}
+
+@media (pointer: coarse) {
+  html[data-dsh-ccd-style="true"] [data-turn-tail] [data-changed-files][data-ccd-changes-single] button[class*="_header"] {
+    min-height: 44px;
+  }
+}
+
+/* ChangedFiles hover comparisons are portaled under body, outside the summary.
+   Hide both their content and outer surface so no empty floating card remains. */
+html[data-dsh-ccd-style="true"] [data-changes-hover-preview],
+html[data-dsh-ccd-style="true"] body > div:has(> [data-changes-hover-preview]) {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-changed-files] [data-ccd-changes-title-source] {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-changed-files] [data-ccd-changes-title] {
+  font: 400 13px/20px var(--ccd-font-ui);
+}
+
+/* Dark reference user bubbles share the input surface's neutral fill. */
+html[data-dsh-ccd-style="true"] body[data-ds-dark-theme] :is(.IzP3Va_bubble, [data-message-bubble]) {
+  background: var(--ccd-card);
+}

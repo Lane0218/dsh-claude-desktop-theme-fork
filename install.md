@@ -1,0 +1,162 @@
+# 安装指南
+
+环境：DeepSeek Harness Desktop `>=0.2.1-rc.3 <0.3.0-0`，允许后续 `0.2.x` 正式版与预发布版（含 `0.2.2-rc.2`）安装；放宽版本声明不代表已完成所有版本的实机验证。macOS（Apple 芯片）已通过 `0.2.2-rc.2` 实机冒烟测试。下方保留 Windows 10 及以上（64 位）的安装步骤；新版宿主的 Windows 构建尚未完成验证。首次安装前启动一次 DSH，初始化 desktop profile。源码构建另需 Node.js `>=22.18.0`、npm 和 Git。
+
+## 从 npm 安装（推荐）
+
+### 官方插件页
+
+打开 DSH「插件 → 添加插件」，输入 `dsh-claude-desktop-theme` 并安装。安装后按下方「启用与配置」重载应用。
+
+### 终端
+
+已注册 `dsh` 命令时执行：
+
+```sh
+dsh plugin --profile desktop add dsh-claude-desktop-theme
+```
+
+macOS 未注册命令时，可使用应用内置 CLI：
+
+```sh
+"${DSH_CCD_APP:-/Applications/DeepSeek Harness.app}/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop add dsh-claude-desktop-theme
+```
+
+Windows 可先通过「应用 → 管理 dsh 命令…」安装命令，再重开 PowerShell；也可直接调用应用内置启动器：
+
+```powershell
+$ccdApp = if ($env:DSH_CCD_APP) { $env:DSH_CCD_APP } else { Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness' }
+& (Join-Path $ccdApp 'resources\runtime\cli\bin\dsh.cmd') plugin --profile desktop add dsh-claude-desktop-theme
+```
+
+安装的是已构建的 [npm 包](https://www.npmjs.com/package/dsh-claude-desktop-theme)，无需克隆源码或在本机编译。安装到应用正在使用的 `DSH_HOME` 与 profile；桌面版默认使用 `desktop`，不要安装到独立的 `web` profile。
+
+### 插件市场
+
+插件目录收录尚未完成，目前请通过官方插件页或终端安装。
+
+## 从旧包名迁移
+
+`0.1.0` 的 npm 包名为 `dsh-ccd-style`，从 `0.2.0` 起改为 `dsh-claude-desktop-theme`。这是安装新的 npm 包，旧包的更新命令不会自动切换包名。
+
+1. 在旧插件设置中记录颜色、字体、模块开关；有手动覆盖配置时先备份当前 profile 的 `cordis.patch.yml`。
+2. 使用应用正在使用的 CLI、`DSH_HOME` 和 `desktop` profile，先移除旧包，再安装新包：
+
+   ```sh
+   dsh plugin --profile desktop remove dsh-ccd-style
+   dsh plugin --profile desktop add dsh-claude-desktop-theme
+   ```
+
+3. 重载应用，在「设置 → Claude 主题」核对并重新设置自定义项。不要同时启用旧包和新包。
+
+包名迁移不会自动复制旧包的自定义配置。手动维护用户层覆盖配置时，将插件 `name: dsh-ccd-style` 改为 `name: dsh-claude-desktop-theme`；条目 id 仍为 `ui-skin-ccd-style`，请勿添加重复 id。未注册 `dsh` 时，使用上面的应用内置 CLI 路径。
+
+## 从源码安装
+
+```sh
+git clone https://github.com/zkforge/dsh-claude-desktop-theme.git
+cd dsh-claude-desktop-theme
+```
+
+已有仓库时，在当前 checkout 执行对应平台的命令。
+
+浏览器测试和资源脚本共用浏览器选择逻辑：优先使用 `CHROME` 指定的可执行文件（路径不存在时报错）；macOS 未设置时，依次查找 `~/.cache/chrome-for-testing` 中的 headless shell、Chrome，再查找 Playwright 缓存中的 Chrome for Testing，最后回退系统 Chrome／Chromium。每个缓存按版本从新到旧选择，不固定本机版本号。在限制浏览器进程或本地 DevTools 连接的沙箱内运行时，仍需允许在沙箱外执行测试。
+
+### macOS
+
+```sh
+set -e
+npm ci --cache .cache/npm
+npm run pack:local --cache .cache/npm
+
+ccd_app="${DSH_CCD_APP:-/Applications/DeepSeek Harness.app}"
+ccd_cli="$ccd_app/Contents/Resources/runtime/cli/bin/dsh"
+ccd_version="$(node -p 'require("./package.json").version')"
+ccd_install_dir="$(mktemp -d "$PWD/artifacts/install.XXXXXX")"
+ccd_tarball="$ccd_install_dir/dsh-claude-desktop-theme-$ccd_version.tgz"
+cp "$PWD/artifacts/dsh-claude-desktop-theme-$ccd_version.tgz" "$ccd_tarball"
+"$ccd_cli" plugin --profile desktop add "$ccd_tarball"
+```
+
+应用位于其他位置时，通过 `DSH_CCD_APP` 指定。
+
+### Windows
+
+先注册 `dsh` 命令：点击窗口左上角（侧栏按钮右侧）的「应用」菜单 →「管理 dsh 命令…」→ 安装，然后重开一个 PowerShell 窗口。已注册时执行：
+
+```powershell
+$ErrorActionPreference = 'Stop'
+npm ci --cache .cache/npm
+npm run pack:local --cache .cache/npm
+
+$ccdVersion = node -p "require('./package.json').version"
+$ccdInstallDir = Join-Path $PWD ("artifacts/install." + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $ccdInstallDir | Out-Null
+$ccdTarball = Join-Path $ccdInstallDir "dsh-claude-desktop-theme-$ccdVersion.tgz"
+Copy-Item "artifacts/dsh-claude-desktop-theme-$ccdVersion.tgz" $ccdTarball
+dsh plugin --profile desktop add $ccdTarball
+```
+
+未注册 `dsh` 时，把上面最后一行换成安装目录内的启动器。默认安装位置为 `%LOCALAPPDATA%\Programs\DeepSeek Harness`，安装到其他位置时用 `DSH_CCD_APP` 指向应用目录：
+
+```powershell
+$ccdApp = if ($env:DSH_CCD_APP) { $env:DSH_CCD_APP } else { Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness' }
+$ccdCli = Join-Path $ccdApp 'resources\runtime\cli\bin\dsh.cmd'
+& $ccdCli plugin --profile desktop add $ccdTarball
+```
+
+`pack:local` 会先完成类型、架构、测试、构建和包检查。每次安装使用唯一 tarball 路径；保留安装目录，profile 的本地依赖会引用它。
+
+自定义数据目录沿用应用的 `DSH_HOME`；默认 profile 为 `~/.dsh/profiles/desktop`，Windows 上为 `%USERPROFILE%\.dsh\profiles\desktop`。
+
+## 启用与配置
+
+安装或升级后完整退出并重新打开 DSH，以加载新的宿主接口和会话投影；只按 **⌘R** 重载窗口不会更新宿主。仅客户端样式调整时，macOS 可以用 **⌘R** 重载；Windows 从托盘菜单退出后重新打开应用。首次加载自动显示风格。升级保留此前的开关和配置。
+
+在「设置 → Claude 主题」调整：
+
+- 总开关与模块开关；默认开启：左侧栏、右侧栏、新建页、主页背景动效、聊天页、工具调用、输入框宠物、统计卡片、上下文分解面板；默认关闭：状态栏统计读数。左、右侧栏独立启停；关闭右侧栏模块会移除增强控件并恢复宿主右栏，文件与终端等功能仍可使用。
+- 在「模块 → 主页背景动效」选择「字符水波纹」（默认）、「宠物畅游」、「像素鲸鱼（宿主）」或「关闭」。像素鲸鱼需要宿主提供该动效，点击主页空白处即可触发。聊天页可在「模块 → 聊天页背景动效」独立选择字符水波纹或宠物畅游，默认关闭。宠物畅游时，像素宇航员会缓缓跟随鼠标，点击空白处可触发流星。
+- 跟随系统、浅色或深色主题。
+- 对话宽度默认随可用空间调整。把鼠标移到正文两侧的留白处，拖动出现的竖线可同时调整正文和输入框宽度。DSH 会记住拖动后的宽度。
+- 会话和侧栏背景色，自定义颜色只作用于浅色模式。
+- API 余额：在「视图 → 显示 API 余额」开关，默认开启；关闭后隐藏侧栏和账号菜单中的余额、峰谷时段与明细，并停止余额查询。
+- 视图：顶栏子代理入口、顶栏团队入口、顶栏后台任务入口、显示空分组，默认均关闭；前三项只控制入口显示，后台任务继续正常运行，显示空分组与侧栏「视图选项」菜单里的是同一开关。
+- 按状态分组默认开启，但设置页没有这一项，只能在侧栏「视图选项 → 分组方式」切换；原有项目与单列表选项保留。「空闲」表示当前未运行且无待输入，不代表任务成功。顶部独立的「已置顶」分组跟随宿主的会话置顶状态。通过会话行菜单置顶或取消置顶，通过侧栏「更多」管理入口的固定状态。
+- 字体三项：界面字体、界面中文字体、代码与等宽字体；设置页只列界面字体与代码字体，界面中文字体需在 profile 的 `cordis.patch.yml` 里配置，留空使用系统字体。
+
+宠物样式、回复签名与首页问候均可选择「关闭」，各自独立隐藏；关闭首页问候会同时隐藏文字与图标。默认使用 Claude 宠物、输出中状态、回复签名与首页问候；字体默认使用 Anthropic Sans Web、Anthropic Serif Web 与 SF Mono，未安装时沿字体栈回退。调试日志默认关闭。
+
+改动即时生效，保存于当前 profile 的 `cordis.patch.yml`。颜色与字体留空时使用内置值。
+
+## Geist 字体
+
+安装仓库内的 `assets/fonts/Geist-Variable.ttf`：macOS 双击后在字体册中安装，Windows 右键选择「安装」。然后重启 DSH。字体使用 SIL OFL 1.1 许可，全文见 [OFL.txt](assets/fonts/OFL.txt)。字体仅供本机安装，不包含在 npm 包中。
+
+## 升级与卸载
+
+npm 安装的插件可通过同一 CLI 和 profile 更新：
+
+```sh
+dsh plugin --profile desktop update dsh-claude-desktop-theme
+```
+
+未注册 `dsh` 时，替换为上面的应用内置 CLI 路径。源码安装则更新源码，重新执行对应平台的安装命令。升级后重载 DSH，保留已有开关和配置。
+
+临时恢复原生界面，在插件配置页关闭「开启 / 关闭 Claude 主题」。卸载使用同一应用、`DSH_HOME` 和 profile。
+
+macOS：
+
+```sh
+"${DSH_CCD_APP:-/Applications/DeepSeek Harness.app}/Contents/Resources/runtime/cli/bin/dsh" plugin --profile desktop remove dsh-claude-desktop-theme
+```
+
+Windows（已注册 `dsh` 时）：
+
+```powershell
+dsh plugin --profile desktop remove dsh-claude-desktop-theme
+```
+
+如曾手动添加用户层覆盖配置，移除其中 `id: ui-skin-ccd-style` 的条目，然后重载 DSH。
+
+项目介绍与安装入口见 [README](README.md)。

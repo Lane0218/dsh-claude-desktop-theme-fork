@@ -1,0 +1,232 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
+import { findChrome, withPage } from '../scripts/lib/headless-chrome.mjs';
+import { aliasHostClasses, PINNED_BUILD, WINDOWS_BUILD } from '../src/client/compat/host-builds.ts';
+
+const root = fileURLToPath(new URL('../', import.meta.url));
+let chrome;
+try { chrome = findChrome(); } catch { /* Browser coverage is optional without Chrome. */ }
+const css = (await Promise.all([
+  'src/client/theme/tokens.css',
+  'src/client/features/conversation/conversation.css',
+  'src/client/features/conversation/header-actions/header-menus.css',
+].map(path => readFile(join(root, path), 'utf8')))).join('\n');
+const markup = `<div data-slot="root"><div class="_6Qf49G_frame"></div></div><aside></aside><main class="ST7X_W_root">
+  <header class="ST7X_W_header"><div class="ST7X_W_titleRow"><div class="ST7X_W_titleCluster">
+    <nav class="ST7X_W_crumbs"><span class="ST7X_W_crumbSeg"><span class="ST7X_W_crumb ST7X_W_crumbCurrent">问候</span></span></nav>
+    <div class="ST7X_W_headerActions"></div></div><div class="ST7X_W_headerUtilities">
+    <button data-ccd-header-view="terminal" onclick="calls.push('terminal')">Terminal</button>
+    <button class="iq4beG_main" aria-label="VS Code" onclick="calls.push('open')">Open</button></div></div>
+    <div class="ST7X_W_tabs"><div class="ST7X_W_viewTabs" role="tablist"><button class="ST7X_W_tab" role="tab" aria-label="Chat" aria-selected="true" onclick="calls.push('chat')">Chat</button><button class="ST7X_W_tab" role="tab" aria-label="Trace" aria-selected="false" onclick="calls.push('trace')">Trace</button></div></div>
+  </header><div data-conversation-session="s1"></div></main>`;
+const hostCss = `@font-face{font-family:Geist;src:url('file://${root}/assets/fonts/Geist-Variable.ttf')}
+html,body{margin:0;font-family:Geist,sans-serif}body{background:#fafaf9}
+aside{position:fixed;inset:0 auto 0 0;width:113px;border-right:1px solid #e2e2e0}
+main{margin-left:114px;min-height:300px;background:#fff}
+.ST7X_W_crumbs,.ST7X_W_crumbSeg{display:flex;align-items:center;gap:4px;min-width:0}
+.ST7X_W_crumb{font-weight:500;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.ST7X_W_headerActions,.ST7X_W_headerUtilities{display:flex}
+.ST7X_W_headerUtilities{display:none}
+.ST7X_W_tabs{width:100%;display:flex;gap:32px;margin-top:10px;padding-left:8px}
+button{font:inherit}`;
+const menu = '[data-ccd-header-menu="session"]';
+
+test('macOS sidebar collapse preserves the session title and its actions', { skip: !chrome, timeout: 30000 }, async () => {
+  const bundle = await build({
+    stdin: { contents: `import { mountHeaderMenus } from './src/client/compat/header-menus.ts'; window.mount = mountHeaderMenus;`, resolveDir: root },
+    bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022',
+  });
+  const profile = await mkdtemp(join(tmpdir(), 'ccd-collapsed-title-'));
+  try {
+    await withPage({ url: 'about:blank', width: 1392, height: 932, scale: 2, profile }, async page => {
+      await page.evaluate(`document.documentElement.setAttribute('data-dsh-ccd-style', 'true');
+        document.documentElement.setAttribute('data-platform', 'darwin');
+        document.body.innerHTML = ${JSON.stringify(markup)};
+        const frame=document.querySelector('._6Qf49G_frame');frame.append(document.querySelector('main'));
+        const style=document.createElement('style');style.textContent=${JSON.stringify(hostCss + css)};
+        document.head.append(style);window.calls=[];window.errors=[];`);
+      await page.evaluate(bundle.outputFiles[0].text);
+      await page.evaluate(`window.release=mount(document,{
+        read:()=>({title:'问候'}),rename:async(id,title)=>calls.push(['rename',id,title]),
+        fork:async()=>{},archive:async()=>{},openApps:async()=>[],openApp:async()=>{},subscribe:()=>()=>{}
+      },error=>errors.push(String(error)))`);
+      for (const collapsed of [false, true, false, true]) {
+        for (const fullscreen of [false, true]) {
+          await page.evaluate(`(()=>{document.querySelector('._6Qf49G_frame').toggleAttribute('data-sidebar-collapsed',${collapsed});
+            document.documentElement.toggleAttribute('data-fullscreen',${fullscreen});
+            document.querySelector('main').style.marginLeft=${JSON.stringify(collapsed ? '0' : '114px')};
+            document.querySelector('._6Qf49G_frame').style.setProperty('--dsh-frame-leading-clearance',${JSON.stringify(collapsed ? (fullscreen ? '136px' : '212px') : '0px')});})()`);
+          for (const title of ['问候', '这是一个用于验证收起侧栏后标题仍能显示且长名称正确截断的会话标题'.repeat(8)]) {
+            await page.evaluate(`document.querySelector('.ST7X_W_crumb').textContent=${JSON.stringify(title)}`);
+            const view = await page.evaluate(`(()=>{
+              const title=document.querySelector('.ST7X_W_crumb');const rect=title.getBoundingClientRect();
+              const trigger=document.querySelector('[data-ccd-session-trigger]').getBoundingClientRect();
+              const tabs=document.querySelector('.ST7X_W_viewTabs').getBoundingClientRect();
+              return {display:getComputedStyle(title).display,width:rect.width,left:rect.left,right:rect.right,
+                triggerLeft:trigger.left,triggerRight:trigger.right,triggerBottom:trigger.bottom,headerWidth:document.querySelector('header').scrollWidth,
+                tabsLeft:tabs.left};})()`);
+            assert.notEqual(view.display, 'none', `collapsed=${collapsed}, fullscreen=${fullscreen}: title stays visible`);
+            assert(view.width > 0, 'the name retains space beside the icon and menu');
+            assert(view.left >= (collapsed ? (fullscreen ? 124 : 200) : 114), 'title clears the native window controls');
+            assert(view.right <= view.triggerLeft + .5, 'the title does not overlap its menu');
+            assert(view.triggerRight <= view.tabsLeft + .5, 'title controls clear the native View tabs');
+            assert(view.triggerRight <= 1392 && view.headerWidth <= 1392, 'long names remain inside the window');
+          }
+        }
+      }
+      await page.evaluate(`document.querySelector('[data-ccd-session-trigger]').click()`);
+      assert.equal(await page.evaluate(`document.querySelector('${menu}').matches(':popover-open')`), true);
+      await page.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+        document.querySelector('.ST7X_W_crumb').click();
+        const input=document.querySelector('[data-ccd-session-rename]');input.value='重命名后的会话';
+        input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
+      assert.deepEqual(await page.evaluate('calls'), [['rename', 's1', '重命名后的会话']]);
+      assert.deepEqual(await page.evaluate('errors'), []);
+      await page.evaluate(`document.querySelector('.ST7X_W_crumb').textContent='问候';
+        document.documentElement.removeAttribute('data-fullscreen');`);
+      const shot = await page.send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 1392, height: 70, scale: 1 } });
+      await mkdir(join(root, 'artifacts'), { recursive: true });
+      await writeFile(join(root, 'artifacts/collapsed-session-title.png'), Buffer.from(shot.data, 'base64'));
+      await page.evaluate('release()');
+    });
+  } finally { await rm(profile, { recursive: true, force: true, maxRetries: 6, retryDelay: 150 }); }
+});
+
+test('header reference menus: geometry, real actions, keyboard, boundaries and cleanup on both builds', { skip: !chrome, timeout: 60000 }, async () => {
+  const bundle = await build({
+    stdin: { contents: `import { mountHeaderMenus } from './src/client/compat/header-menus.ts'; window.mount = mountHeaderMenus;`, resolveDir: root },
+    bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022',
+  });
+  for (const host of [PINNED_BUILD, WINDOWS_BUILD]) {
+    const profile = await mkdtemp(join(tmpdir(), 'ccd-header-menus-'));
+    try {
+      await withPage({ url: 'about:blank', width: 520, height: 300, scale: 2, profile }, async page => {
+        await page.evaluate(`document.documentElement.setAttribute('data-dsh-ccd-style', 'true');
+          document.body.innerHTML = ${JSON.stringify(aliasHostClasses(markup, host))};
+          const style = document.createElement('style'); style.textContent = ${JSON.stringify(aliasHostClasses(hostCss + css, host))}; document.head.append(style);
+          window.calls = []; window.errors = []; window.data = { title:'问候' };
+          window.listener = null;`);
+        await page.evaluate(bundle.outputFiles[0].text);
+        await page.evaluate(`window.release = window.mount(document, {
+          read:id=>id==='s1' ? data : {title:'其他会话'},
+          rename:async(id,title)=>{calls.push(['rename',id,title]);data.title=title;listener()},
+          fork:async id=>calls.push(['fork',id]),archive:async id=>calls.push(['archive',id]),
+          openApps:async()=>window.openApps?.()??[],openApp:async(app,path)=>calls.push(['openApp',app,path]),
+          subscribe:fn=>{listener=fn;return ()=>{listener=null}}
+        },error=>errors.push(String(error)))`);
+        const click = selector => page.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+        const choose = (selector, label) => page.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector + ' button')})].find(node=>node.querySelector('[data-ccd-header-row-label]')?.textContent===${JSON.stringify(label)}).click()`);
+        const key = value => page.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', {key:${JSON.stringify(value)},bubbles:true}))`);
+        const geometry = selector => page.evaluate(`(()=>{const node=document.querySelector(${JSON.stringify(selector)});const r=node.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height,rows:[...node.querySelectorAll('button')].map(row=>row.getBoundingClientRect().height)}})()`);
+        assert.equal(await page.evaluate(`document.querySelector('[data-ccd-project-trigger]')`), null, 'no project chip competes with the title');
+        await click('[data-ccd-session-trigger]');
+        assert.deepEqual(await page.evaluate(`Array.from(document.querySelectorAll('${menu} button')).map(node=>node.querySelector('[data-ccd-header-row-label]').textContent)`), ['打开方式', '重命名', '创建分支', '归档']);
+        const session = await geometry(menu);
+        assert.equal(session.w, 160); assert.equal(session.h, 124); assert.deepEqual(session.rows, Array(4).fill(24));
+        const trigger = await geometry('[data-ccd-session-trigger]');
+        assert.equal(session.x, trigger.x); assert.equal(session.y, trigger.y + trigger.h + 6);
+        assert.equal(await page.evaluate(`document.querySelector('${menu}').matches(':popover-open')`), true);
+        await key('Home'); await key('ArrowDown'); await key('r');
+        assert.equal(await page.evaluate(`document.querySelector('dialog')`), null);
+        assert.equal(await page.evaluate(`document.activeElement.hasAttribute('data-ccd-session-rename')`), true);
+        assert.deepEqual(await page.evaluate(`(()=>{const input=document.activeElement;return [input.value,input.selectionStart,input.selectionEnd,input.parentElement.hasAttribute('data-ccd-session-title')]})()`), ['问候', 0, 2, true]);
+        assert.equal(await page.evaluate(`getComputedStyle(document.querySelector('nav > span:not([data-ccd-session-icon])')).display`), 'none');
+        const editKey = value => page.evaluate(`document.querySelector('[data-ccd-session-rename]').dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(value)},bubbles:true}))`);
+        await page.evaluate(`document.querySelector('[data-ccd-session-rename]').value='Changed'`);
+        await editKey('Enter');
+        assert.deepEqual(await page.evaluate('calls'), [['rename', 's1', 'Changed']]);
+        assert.equal(await page.evaluate(`document.querySelector('[data-ccd-session-rename]')`), null);
+        assert.equal(await page.evaluate(`getComputedStyle(document.querySelector('nav > span:not([data-ccd-session-icon])')).display`), 'flex');
+        await click('[data-ccd-session-title] [role="button"]');
+        assert.equal(await page.evaluate(`document.activeElement.hasAttribute('data-ccd-session-rename')`), true);
+        await page.evaluate(`document.querySelector('[data-ccd-session-rename]').value='Cancelled'`); await editKey('Escape');
+        assert.equal(await page.evaluate('calls.length'), 1, 'Escape leaves the title unchanged');
+        await click('[data-ccd-session-trigger]'); await choose(menu, '重命名');
+        await page.evaluate(`document.querySelector('[data-ccd-session-rename]').value='   '`); await editKey('Enter');
+        assert.equal(await page.evaluate('calls.length'), 1, 'an empty title does not overwrite the session name');
+        await click('[data-ccd-session-trigger]'); await choose(menu, '重命名'); await editKey('Enter');
+        assert.equal(await page.evaluate('calls.length'), 1, 'an unchanged title needs no request');
+        await click('[data-ccd-session-trigger]'); await choose(menu, '重命名');
+        await page.evaluate(`const input=document.querySelector('[data-ccd-session-rename]');input.value='  Blurred  ';input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true}))`);
+        assert.equal(await page.evaluate('calls.length'), 1, 'IME confirmation does not save');
+        // A headless page without window focus does not dispatch blur(); focus emulation gives the real blur path.
+        await page.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+        await page.evaluate(`document.querySelector('[data-ccd-session-rename]').blur()`);
+        await page.send('Emulation.setFocusEmulationEnabled', { enabled: false });
+        assert.deepEqual(await page.evaluate('calls.at(-1)'), ['rename', 's1', 'Blurred']);
+        await page.evaluate('calls.splice(1)');
+        await click('[data-ccd-session-trigger]'); await key('f');
+        await click('[data-ccd-session-trigger]'); await choose(menu, '归档');
+        assert.deepEqual(await page.evaluate('calls.slice(1)'), [['fork', 's1'], ['archive', 's1']]);
+        await click('[data-ccd-session-trigger]'); await choose(menu, '打开方式'); await choose('[data-ccd-header-menu="打开方式"]', 'VS Code');
+        assert.equal(await page.evaluate('calls.at(-1)'), 'open');
+        // Installed applications replace the forwarded row, grouped and icon-backed; a failed read keeps that row.
+        await page.evaluate(`document.documentElement.lang='en';window.failedIcons=[];document.addEventListener('error',event=>failedIcons.push(event.target.getAttribute('src')),true);window.openApps=()=>['konsole-next','terminal','cursor','finder','fork'];data.cwd='/work';release();
+          window.release=window.mount(document,{read:()=>data,rename:async()=>{},fork:async()=>{},archive:async()=>{},
+            openApps:async()=>openApps(),openApp:async(app,path)=>calls.push(['openApp',app,path]),subscribe:fn=>{listener=fn;return ()=>{listener=null}}},error=>errors.push(String(error)))`);
+        await page.evaluate('new Promise(requestAnimationFrame)');
+        await click('[data-ccd-session-trigger]'); await choose(menu, '打开方式');
+        const apps = '[data-ccd-header-menu="打开方式"]';
+        assert.deepEqual(await page.evaluate(`[...document.querySelector('${apps}').children].map(node=>node.tagName==='HR'?'-':node.querySelector('[data-ccd-header-row-label]').textContent)`), ['Finder', '-', 'Cursor', '-', 'Fork', '-', 'Terminal']);
+        // about:blank cannot resolve the icon route, which exercises the missing-icon glyph too.
+        await page.evaluate('new Promise(requestAnimationFrame)');
+        assert.equal((await page.evaluate('failedIcons'))[0], 'open-in-app/icon/finder');
+        assert.equal(await page.evaluate(`document.querySelectorAll('${apps} [data-ccd-header-row-icon] svg').length`), 4);
+        await choose(apps, 'Cursor');
+        assert.deepEqual(await page.evaluate('calls.at(-1)'), ['openApp', 'cursor', '/work']);
+        await page.evaluate(`document.documentElement.lang='zh-CN'`);
+        await click('[data-ccd-session-trigger]'); await choose(menu, '打开方式');
+        assert.equal(await page.evaluate(`document.querySelector('${apps} [data-ccd-header-row-label]').textContent`), '访达');
+        await key('Escape'); await key('Escape');
+        await page.evaluate(`document.documentElement.removeAttribute('lang');window.openApps=()=>[]`);
+        await page.evaluate(`release();window.release=window.mount(document,{read:()=>data,rename:async(id,title)=>{calls.push(['rename',id,title]);data.title=title;listener()},
+          fork:async()=>{},archive:async()=>{},openApps:async()=>[],openApp:async()=>{},subscribe:fn=>{listener=fn;return ()=>{listener=null}}},error=>errors.push(String(error)))`);
+        await page.evaluate('new Promise(requestAnimationFrame)');
+        await click('[data-ccd-session-trigger]'); await key('d');
+        assert.equal(await page.evaluate(`document.querySelector('dialog')`), null);
+        assert.equal(await page.evaluate(`document.querySelector('${menu}').matches(':popover-open')`), true);
+        await key('Home'); await key('ArrowRight');
+        assert.equal(await page.evaluate(`document.querySelectorAll('[data-ccd-header-menu]').length`), 2);
+        await key('ArrowLeft'); assert.equal(await page.evaluate(`document.activeElement.querySelector('[data-ccd-header-row-label]').textContent`), '打开方式');
+        await key('Escape'); assert.equal(await page.evaluate(`document.activeElement.hasAttribute('data-ccd-session-trigger')`), true);
+        // Escape/outside and navigation must withdraw both cards and update identity.
+        await click('[data-ccd-session-trigger]');
+        await page.evaluate(`document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))`);
+        assert.equal(await page.evaluate(`document.querySelectorAll('[data-ccd-header-menu]').length`), 0);
+        await click('[data-ccd-session-trigger]');
+        await page.evaluate(`document.querySelector('[data-conversation-session]').setAttribute('data-conversation-session','s2')`);
+        assert.equal(await page.evaluate(`document.querySelectorAll('[data-ccd-header-menu]').length`), 0);
+        await page.evaluate(`document.querySelector('[data-conversation-session]').setAttribute('data-conversation-session','s1')`);
+        await click('[data-ccd-session-trigger]'); await choose(menu, '重命名');
+        await page.evaluate(`document.querySelector('[data-ccd-session-rename]').value='Stale';document.querySelector('[data-conversation-session]').setAttribute('data-conversation-session','s2')`);
+        assert.equal(await page.evaluate(`document.querySelector('[data-ccd-session-rename]')`), null, 'switching sessions cancels the editor');
+        assert.equal(await page.evaluate(`calls.some(call=>Array.isArray(call)&&call[2]==='Stale')`), false);
+        await page.evaluate(`document.querySelector('[data-conversation-session]').setAttribute('data-conversation-session','s1')`);
+        await click('[data-ccd-session-trigger]');
+        await page.evaluate(`document.body.setAttribute('data-ds-dark-theme','')`);
+        assert.equal(await page.evaluate(`getComputedStyle(document.querySelector('${menu}')).backgroundColor`), 'rgb(34, 34, 34)');
+        // A short window and narrow viewport keep all menu rows reachable.
+        await page.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 150, deviceScaleFactor: 2, mobile: false });
+        await page.evaluate('window.dispatchEvent(new Event("resize"))');
+        const narrow = await geometry(menu); assert(narrow.x >= 8); assert(narrow.x + narrow.w <= 312); assert(narrow.h <= 134);
+        await page.send('Emulation.setDeviceMetricsOverride', { width: 520, height: 300, deviceScaleFactor: 2, mobile: false });
+        await page.evaluate(`document.body.removeAttribute('data-ds-dark-theme');window.dispatchEvent(new Event('resize'))`);
+        if (host === PINNED_BUILD && process.env.CCD_HEADER_MENU_PREVIEW === '1') {
+          await mkdir(join(root, 'artifacts'), { recursive: true });
+          const shot = await page.send('Page.captureScreenshot', { format: 'png' });
+          await writeFile(join(root, 'artifacts/header-menu-session.png'), Buffer.from(shot.data, 'base64'));
+        }
+        await key('Escape');
+        await click('[data-ccd-session-trigger]'); await choose(menu, '重命名');
+        await page.evaluate('release()');
+        assert.equal(await page.evaluate(`document.querySelectorAll('[data-ccd-header-menu], [data-ccd-session-trigger], [data-ccd-session-icon], [data-ccd-project-trigger], [data-ccd-session-title], [data-ccd-session-editing], [data-ccd-session-rename], dialog').length`), 0);
+        assert.equal(await page.evaluate('listener'), null); assert.deepEqual(await page.evaluate('errors'), []);
+      });
+    } finally { await rm(profile, { recursive: true, force: true, maxRetries: 6, retryDelay: 150 }); }
+  }
+});

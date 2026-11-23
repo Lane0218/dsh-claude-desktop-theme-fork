@@ -1,0 +1,96 @@
+html[data-dsh-ccd-style="true"] [data-ccd-navigation-history] {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--ccd-icon-button-gap);
+  padding: 0;
+  -webkit-app-region: no-drag;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-navigation-history] button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ccd-text-secondary);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-navigation-history] button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-navigation-history] button:hover:not(:disabled) {
+  background: var(--ccd-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-navigation-history] button:focus-visible {
+  outline: 2px solid var(--ccd-text-secondary);
+  outline-offset: -2px;
+}
+
+/* The expanded macOS toggle is fixed; its sibling shares the same coordinates.
+   Fullscreen uses the toggle's existing 12px inset instead of the traffic lights. */
+html[data-dsh-ccd-style="true"][data-platform="darwin"] [data-ccd-navigation-history] {
+  position: fixed;
+  top: 13px;
+  left: calc(var(--ccd-sidebar-toggle-left, 88px) + 24px + var(--ccd-icon-button-gap));
+  z-index: 15;
+}
+
+/* In shell.leading, stay in the flex flow to make room before New Session. */
+html[data-dsh-ccd-style="true"][data-platform="darwin"] [data-shell-leading] [data-ccd-navigation-history] {
+  position: static;
+  margin-left: 0;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-navigation-history] button[data-ccd-history-direction] svg {
+  width: 16px;
+  height: 16px;
+}
+
+html[data-dsh-ccd-style="true"][data-platform="darwin"] ._6Qf49G_frame[data-sidebar-collapsed]:has([data-ccd-navigation-history]) {
+  --dsh-frame-leading-clearance: 212px;
+}
+
+html[data-dsh-ccd-style="true"][data-platform="darwin"][data-fullscreen] ._6Qf49G_frame[data-sidebar-collapsed]:has([data-ccd-navigation-history]) {
+  --dsh-frame-leading-clearance: 136px;
+}
+
+html[data-dsh-ccd-style="true"]:not([data-platform="darwin"]):not([data-windows-titlebar]) [data-ccd-navigation-history] {
+  margin-bottom: 4px;
+}
+
+html[data-dsh-ccd-style="true"]:not([data-platform="darwin"]):not([data-windows-titlebar]) ._3WPZCG_collapsed [data-ccd-navigation-history] {
+  flex-direction: column;
+}
+
+/* Keep history beside the native toggle, including when the sidebar is hidden.
+   The preload's menu host consumes this inherited offset inside its shadow DOM. */
+html[data-dsh-ccd-style="true"][data-windows-titlebar] [data-ccd-navigation-history] {
+  position: fixed;
+  top: calc((var(--dsh-windows-titlebar-height, 40px) - 24px) / 2);
+  left: 40px;
+  z-index: 30;
+}
+
+html[data-dsh-ccd-style="true"][data-windows-titlebar]:has([data-ccd-navigation-history]) {
+  --ccd-windows-new-session-left: 96px;
+  --dsh-windows-menu-start: 100px;
+}
+
+html[data-dsh-ccd-style="true"][data-windows-titlebar]:has([data-sidebar-collapsed]):has([data-ccd-navigation-history]) {
+  --dsh-windows-menu-start: 128px;
+}

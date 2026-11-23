@@ -1,0 +1,244 @@
+# 项目架构
+
+插件由 Host 配置与统计服务、客户端主题与展示组件组成。Workspace、Session、消息、Composer 和模型选择由 DSH 管理。
+
+`host/clear.ts` 注册 `/clear`，在 Agent 的 `runMaintenance` 中读取权威 surface，把旧对话替换为固定「对话已清空。」标记，保留 system、developer 工具配置，以及 `agent-instructions`／`skill-catalog`。标记使用 `user/message` 与自有 `ccd-clear` 来源，可合法写在轮次之间；不能使用要求正数 turn／step 且必须位于开放步骤中的 `developer/message`，也不虚构执行轮次。每个替换前写 `compaction/prune`，使宿主上下文计数同步扣除旧内容；原始日志、会话身份和目录均保留，完成后等待 `sessions.flush`。末尾标记以 `ccd-clear:` 消息 ID 记录边界，`ccdClear` 投影随日志重放并发布至客户端；不注册新日志事件类型。`compat/clear-history.ts` 根据该边界、Chat 节点的 `anchorSeq` 和轮次标记隐藏旧行，提供只改变显示的历史展开按钮，历史分页、重启与重复清空均沿用持久化边界。隐藏只加自有属性，不移动 React 节点；关闭插件恢复原始历史展示，已清除的模型上下文仍保持清除。回归测试经过真实 V4 编码、解码和轮次／步骤关系校验，再验证后续真实轮次与重复清空。
+
+## 代码结构
+
+会话顶栏的参考菜单由 `compat/header-menus.ts` 添加电脑图标与标题下拉（不显示项目名，让标题占满可用宽度），React 所属的标题和祖先导航节点保留原位置。`compat/header-menu-actions.ts` 从 Session 权威快照读取名称，通过 `sessions.using` 重命名，通过 `uiWorkspace` Fork 与归档。「打开方式」子菜单经 `compat/open-apps.ts` 列出宿主 `open-in-app` 路由报告的已安装应用，按文件管理器、编辑器、Git 客户端、终端分组，由宿主负责各平台的检测与启动；从这里打开不改宿主记住的默认应用，列表为空或读取失败时退回转发宿主打开按钮。其余可用动作转发真实宿主控件；未公开的能力用明确说明对话框保留外观。菜单使用顶层 popover，支持二级菜单、键盘和边界避让，切换会话或卸载时清理菜单、标记、监听器和订阅。尺寸与配色由 `features/conversation/header-actions/header-menus.css` 和主题 token 提供。macOS 收起侧栏后保留会话标题与重命名入口，沿用宿主窗口控制区的宽度预留；原生视图入口与标题同排，长标题在空间不足时截断。
+
+| 目录 | 职责 |
+| --- | --- |
+| `src/shared` | 插件身份、配置与统计数据契约 |
+| `src/host` | 配置 schema、会话用量投影与统计路由 |
+| `src/client/contracts` | feature、服务、DOM 与配置表单端口 |
+| `src/client/core` | 清理作用域与 feature 装配 |
+| `src/client/compat` | SDK 接入、宿主选择器与布局量测 |
+| `src/client/theme` | 设计变量、调色板、语义 token、Composer、宿主弹层与滚动条样式 |
+| `src/client/features` | 界面模块、模型控件与配置页 |
+| `src/client/apply.ts` | 客户端组合入口 |
+| `scripts` | 构建、架构与安装包检查 |
+| `tests` | 配置、生命周期、布局适配与统计行为测试 |
+
+Host 依赖 shared 与 Host 运行库；客户端各层通过 contracts、core、compat 和 theme 共享能力。跨 feature 组合集中在 `apply.ts`。React 组件通过 props、回调和 SDK hooks 访问数据，Context 留在注册与适配层。
+
+## 界面模块
+
+插件管理页由 `compat/plugin-page.ts` 和 `theme/plugins.css` 适配为「自定义」：保留宿主「我的／发现」页签、市场来源、发现页搜索、标签筛选、排序、安装任务和详情配置，列表改为双列描边卡片，内容宽度不足时回到单列。适配从 `data-plugin-panel` 与 `data-plugin-tab="discover"` 定位各自 CSS Module 的前缀，再为该模块的精确类名添加自有标记，不固定构建哈希、不搬移 React 节点。「我的」页不加搜索框；页头唯一的填充按钮是「添加插件」，「更多」与详情、实验性插件页的返回键同为 26px 高、13px 字、16px chevron 的幽灵按钮。「更多」列表页改用详情页的头部节奏：返回行在上，标题在下，返回文字由插件属性经 `::after` 绘制，不改宿主 React 子节点与可访问名称；指向列表根的返回文字跟随页名写「自定义」。发现页普通安装按钮显示为加号，兼容性受限及已安装状态保留宿主文字和动作，不添加虚构推荐、安装量或试用入口。观察器仅在面板变化或出现时按帧同步，卸载时清理监听器并恢复仍由插件持有的文字与属性。
+
+导航历史由 `compat/navigation-history.ts` 在本次挂载的内存中保存最近 100 次会话与主面板访问；后退后打开新目标会清除前进分支。`navigation-history-port.ts` 从宿主 `mainView` 保留引用与 `layout.panelInfo` 读取当前目标，合并同一轮切换通知，重放通过宿主会话／面板接口完成，并取消尚未完成的新会话导航。归档／删除的会话会移出栈，已注销的面板打开失败时移除该条并保留当前位置；不改浏览器 history，不额外保留会话引用。`navigation-history-controls.ts` 在 macOS 侧栏开关右侧插入插件自己的后退／前进按钮，侧栏收起后跟随 `shell.leading`；Windows 标题栏模式将导航组挂到 frame，避免侧栏收起为零宽后被裁掉；折叠、后退、前进和收起后的新建按钮统一为 24px 点击区与 16px 图标，相邻按钮间隔取 `--ccd-icon-button-gap`（4px，与侧栏工作区行的 ⋯／+、分区头的搜索／视图选项一致；工作区行需清掉宿主 `iconButton` 的 -4px 外边距），纵向居中在原生 40px 标题栏。菜单通过宿主的 `--dsh-windows-menu-start` 预留空间；品牌开关仅隐藏品牌内容，折叠按钮保留。其他平台仍使用侧栏顶部独立行，折叠轨道中纵向排列；浏览器宿主没有窗口控制行，也不挂载导航历史（`data-platform` 由桌面 preload 写入，缺失即浏览器），宿主把折叠按钮放在品牌行内，品牌开关同时控制品牌与折叠按钮，展开的侧栏自己补顶部内边距（[sidebar.css](src/client/features/sidebar/sidebar.css)）。样式在 `theme/navigation-history.css`，跟随 sidebar 开关挂载，卸载时清理节点和订阅。会话视图标签保留在宿主标题下方，不占用侧栏顶部。侧栏会话行与工作区行的宿主悬停卡片（标题、路径、时间）一律隐藏，按卡片表面直属的 `hoverContent` 识别。
+
+侧栏展开时，`compat/account-menu.ts` 在宿主账号 footer 前插入独立 `data-ccd-balance-slot`，由 `compat/account-balance.ts` 常显 DeepSeek API 总余额、赠金、预计可用天数与峰谷标签，今日消耗与充值放在悬停卡片。`compat/balance-ledger.ts` 在 `localStorage` 按本地日期记录余额下降（上涨只移动基线），保留最近 7 个已观测日用于日均；峰谷判定在 `shared/pricing-period.ts`（2026 年节假日日历，未知年度不外推，需随官方规则维护）；不搬移 React 节点，不依赖账号菜单打开。点击卡片刷新，每分钟后台更新，页面隐藏时停止，侧栏折叠、账号变化或卸载时中止请求并清理；同账号重新展开保留上次读数。展开时账号菜单不重复查询，折叠轨道的账号菜单保留余额行作为入口；两处统一受 `view.showApiBalance` 控制（默认开启），关闭时不挂载余额读取器、峰谷标记与明细，配置变化经现有重挂载流程停止请求和计时器；两处都由 `compat/account-balance-hint.ts` 在悬停或聚焦 500ms 后显示顶层明细卡片；查询失败时清除旧明细。卡片与菜单使用同一读取器与缓存，浅深主题沿用 sidebar token。`host/balance.ts` 复用启用的 `dsh-llm-deepseek-api-key` 的凭据引用，只向固定的 DeepSeek 官方余额接口发起请求；自定义端点不参与。Key 和上游错误正文留在 Host，客户端仅收到人民币余额与查询状态。接口说明见 [DeepSeek 官方文档](https://api-docs.deepseek.com/zh-cn/api/get-user-balance/)。
+
+账号按钮右侧的插件反馈按钮由 `compat/plugin-feedback.ts` 打开仿宿主「发送反馈」样式的模态框：输入描述后，「发送」（或 ⌘/Ctrl+Enter）在浏览器打开 GitHub `issues/new`，以 `title`／`body` 查询参数预填描述与插件版本（构建时注入）、宿主构建识别结果、平台、语言、外观、窗口尺寸和 UA；描述为空时直接打开空白的新建 Issue 页。「发送」沿用插件确认对话框的红色主按钮 token，聚焦环与共用 Modal 一致只在键盘聚焦时出现；反馈按钮本身不显示悬停提示。不读取会话内容，插件本身不发起任何请求，用户在 GitHub 上确认、补截图后提交。描述截断到 4000 字以免 URL 过长。
+
+| 模块 | 内容 | 默认 |
+| --- | --- | --- |
+| sidebar | 左栏背景、导航与历史按钮、工作区、会话列表、账号菜单与视图选项卡片 | 开启 |
+| right-panel | 右栏浮动卡片、分栏布局、文件树搜索与工具栏 | 开启 |
+| new-session | 问候区与输入卡片布局 | 开启 |
+| conversation | 顶栏、Markdown、滚动渐隐与回到底部按钮 | 开启 |
+| tool-calls | 连续工具调用的计数摘要与可展开列表 | 开启 |
+| composer-pet | 新会话输入卡右上角的小鲸鱼 | 开启 |
+| statistics | 用量概览、热力图与模型图表 | 开启 |
+| composer-stats | 状态栏末尾的统计读数（输出速度与缓存命中率） | 关闭 |
+| context-panel | 上下文圆环的分段分解面板（收起／展开两态） | 开启 |
+
+会话过程由 `view.expandConversationProcess` 控制，默认开启平铺：`compat/conversation-process.ts` 通过宿主 `data-turn-process` 与 `data-process-activity` 控件展开整轮过程和步骤分组，跟随流式完成、历史加载及会话切换；仅在开启时挂载 `features/conversation/process-expanded.css`，展开后隐藏「已完成，用时…」和步骤分组标题，并取消过程区的内部限高滚动。思考与工具调用条目仍由宿主渲染，各自的详情折叠保持独立。自动展开后恢复原输入焦点；关闭「过程默认展开」或 conversation 功能会停止观察，并通过原生控件撤回插件自动展开的状态，原本展开的条目不动，恢复宿主标题、限高滚动与工作步骤展示／收起策略。工具聚合摘要仍由独立的 tool-calls 功能控制。
+
+会话末尾恢复显示宿主 `data-changed-files` 变更摘要，样式为 10px 圆角细边框、32px 标题行和分隔线、28px 文件行与右对齐的增删数；文件行与 “查看全部”页脚均采用左右内缩 3px、6px 圆角的浅色悬停／键盘聚焦底色，增删数仍固定在行尾；页脚悬停或键盘聚焦后显示 “查看本轮更改”提示，并提供对应的可访问描述。`compat/changed-files.ts` 为单文件和多文件卡片统一增加 “查看全部”页脚，转发原生标题按钮打开本轮审阅，总计复制宿主统计，不从工具调用自行累加；列表装饰图标复制宿主卡片已有的原生文件图标，不引入另一套图标。单文件增加独立的“已编辑 1 个文件”标题，原生按钮仍留在悬停预览包装层内作为文件行，文件名取自宿主可访问路径描述，图标与统计保留原生数据；标题和行高样式使用后代选择器兼容该包装层。原生文件行点击、大文件／二进制提示和超过四个文件的列表折叠保持可用；文件悬停的 diff 浮窗通过 `data-changes-hover-preview` 连同 body 下的 portal 外框一起隐藏，保留行高亮和点击审阅；统计更新、历史会话加载、单／多文件切换时同步，关闭模块会移除页脚与装饰图标。
+
+`composer-stats` 是唯一不挂载模块的开关：它是状态栏统计读数的接管，由 `compat/stats-values.ts` 与 composer 样式表承担，关闭（默认）时宿主的那一族读数不画；同一模块发布的宽度预算与这个开关无关，读数隐藏只是把它占的宽度还给模型按钮。
+
+侧栏导航保留宿主按钮与操作：新会话显示「新建」及淡圆底加号，插件改为「自定义」并显示工具箱，自动化任务改为「定时任务」并显示时钟；文字与会话行同为 13px，工具箱与时钟 15px、加号 17px，按参考图量得的墨迹宽度定尺。`compat/sidebar-navigation.ts` 插入装饰 SVG、更新文字与无障碍名称，兼容展开／折叠和语言切换，卸载时恢复原节点；未知插件入口保持宿主原样。图形在 `features/sidebar/navigation-icons.ts`，悬停、键盘聚焦与当前面板的结束姿态由 `navigation.css` 控制，遵循减少动态效果偏好。三个入口的当前位置都带持久底色：自定义与定时任务由宿主的 `panelActive` 标记，「新建」不是面板、拿不到这个类，所以它的选中态读宿主自己的另一条事实——会话根节点的 `data-phase="hero"`（新会话页；`new-session.css`、`compat/pet-anchor.ts` 与 `composerCardHero` 选择器读的是同一个值）。[sidebar.css](src/client/features/sidebar/sidebar.css) 用一条文档级 `:has()` 直接取它，不发观察器、也不写属性：发送第一条消息（`data-phase` 转 `active`）或选中自定义／定时任务（布局的 keyed `main` 槽按 `activePanelId` 换掉整棵会话根节点）底色都会自行消失，折叠成轨道时它随其余展开布局值一起失效。
+
+「更多」启动行（`PanelMoreMenu`，带 `aria-haspopup="menu"` 的 panel row）保留宿主文字，`sidebar-navigation.ts` 用三点图形替换宿主的应用网格图标。插件自己的「主题」面板由 `features/settings/register.ts` 经 `compat/sidebar-panels.ts` 注册：`sidebar.panellist` 条目（id `ccd-theme`，order 20，排在自定义与定时任务之后）加同 key 的 `main` 页面，页面复用设置页的 `ConfigPage`，标题与内边距对齐自定义页。它与设置分区一样注册在外层作用域，关闭 Claude 主题后仍可从侧栏重新开启；行内图标带 `data-ccd-theme-glyph` 标记，导航模块据此识别并换成同一套调色板图形，不按文字猜。插件开启时整个带尺寸的标记盒被隐藏（不只是其中的 svg），否则它会占住 16px 图标位的一半，把叠加的图形挤偏。
+
+侧栏入口的固定与取消固定使用宿主「更多」菜单和各入口的原生操作。主题在展开状态统一「新建」、搜索和原生面板的横向边界，并为面板的取消固定按钮保留空间。
+
+左右侧栏分别由 `sidebar` 和 `right-panel` 独立启停，窗口与中央画布的基础样式、默认字体及文字选择规则并入 `theme/base.css`，随主题总开关启停，不再提供窗口骨架模块开关；旧配置中的 `features.shell` 被忽略。`features/right-panel/mount.ts` 将右栏样式、`files-pane.ts` 的增强节点和 `right-panes.ts` 的布局接管放在同一清理作用域，关闭时先恢复宿主布局、清理增强节点，再移除样式，避免无样式的 SVG 与按钮残留。
+
+右侧栏由 [frame.css](src/client/features/right-panel/frame.css) 保留宿主的轨道宽度与四边 8px 内缩。没有视图时，DockKit 的 surface 显示落地卡片；有视图时，surface 只提供量测区域，卡片的轮廓与阴影落在各自的浮层上。所有定位与内容选择器都使用 `data-sidebar-right-*`、`data-dockkit-*`、`data-files-*` 稳定钩子，两套宿主构建共用一份规则。
+
+[right-panes.ts](src/client/compat/right-panes.ts) 通过宿主的 `sidebarRight.float(tabId, rect)` 保留真实内容：DockLayout 只接受一格或左右两格，浮层则没有数量限制。插件在浮层节点上发布 `--ccd-pane-*`，样式表用 `!important` 覆盖行内矩形。宿主节点始终留在 React 渲染的位置，终端、浏览器、文件内容与关闭操作仍由宿主处理。
+
+[pane-tiles.ts](src/client/compat/pane-tiles.ts) 保存列成员及各列独立的高度比例：前两块上下排，第三块开右列，后续块拆分较空列中最大的单元；关闭只把空出的高度给同列邻居，整列消失才让另一列铺满。状态按会话保存在本次挂载的内存中，不写宿主布局 store。块间距按视频为 12px。接缝支持鼠标、指针捕获及方向键／Home／End，拖动中关闭、切换会话或窗口失焦会终止拖动。原先独占一行的收起动作转发到卡片 ⋮ 菜单，放大使用同一面板放大动作，每块自有放大／还原，放大矩形从左导航右缘延伸到窗口右缘，覆盖聊天区域，恢复时保持分栏比例；guide 保留作落地页，最后一块关闭时收起整个右栏。
+
+Files 和宿主 `text` 类型的文件资源预览合为一组：预览提供整张卡的标题和正文，树浮层覆盖左侧正文，两者均保留原 DOM 父节点；树的浮层**外层 cell**也提升层级，避免预览 cell 的堆叠上下文遮住树。新的预览自动成为当前文件，宿主的 `data-dockkit-float-active` 变化同步重新打开的旧文件；已打开文件在卡片顶部显示可横向滚动的标签栏，悬停显示相对路径；支持点击和方向键切换、逐个关闭，关闭当前文件后选择相邻标签，最后一个文件关闭后保留文件树。卡片 ⋮ 菜单也保留文件选择入口。对话中的文件链接会在需要时打开 Files：树的请求只跟随读者刚打开的那个预览（本次挂载首次见到的预览 id），恢复自 localStorage 的布局只做记录、不算打开，标签集合变小时也不请求——否则宿主对账旧标签期间插件新开的树会在宿主 `rightbar.session` 里撞上没有 occurrence 的标签，宿主抛错拆掉整列，右栏从此什么都打不开；这一条在宿主侧同样成立——对账期间任何新开的标签都会撞上没有 occurrence 的标签，插件只是避免自己成为那个触发者。树宽比例、放大状态及预览选择按会话隔离。DSH 0.2.2 起文件导航内嵌在预览里（`data-files-navigator`），宿主在 push／overlay 模式下把它画成预览右侧的浮起卡片；插件在窗口宽度 ≥768px 时把它移到卡片左缘、去掉卡片外观、只留一条分隔线，宽度改由插件的 `fileShare` 接缝控制，并隐藏宿主按右缘计算的拖动分隔条；fill 模式与小窗口全卡导航沿用宿主布局。
+
+[files-pane.ts](src/client/compat/files-pane.ts) 供给过滤框、树开关、Files 图标及空预览提示。无文件时，宽卡的树旁边显示居中的落地提示，窄卡优先显示完整文件树；打开文件后该提示让位给宿主预览。树收起保留一枚展开按钮及预览内容，查询和收起状态在同一挂载中的节点替换后恢复。过滤框提示「搜索文件名…」／`Search file names…`，只按名称检索已加载行，命中行及其祖先保留，未展开目录不做服务端搜索，也不提示未接入的 `?` 文件内容搜索。目录 chevron、文件的纸页／代码图形与 24px 行距由 [right-panel.css](src/client/features/right-panel/right-panel.css) 控制。右侧栏插件自己写的词（Files 标题、过滤框提示、树开关、空态、⋮ 菜单、等待提示与截图行）集中在 [pane-labels.ts](src/client/compat/pane-labels.ts)，按 `<html lang>` 取中文或英文：中文界面中文，其余语言沿用参照图原文，语言变化时已挂载的卡片按新语言重写；宿主自己的路径、重新加载与在应用中打开两种语言下都不动。
+
+[pane-chrome.ts](src/client/compat/pane-chrome.ts) 供给视频对应的标题和按钮顺序，静态图形在 [pane-icons.ts](src/client/compat/pane-icons.ts)。宿主标题隐藏并留在原位，视觉标题绘制在其旁边，避开原节点的点击和重命名行为。终端归为同一组，新增终端成为组内标签页，选择和关闭均转发真实宿主内容；单个标签仍显示纯文本标题，多标签展示切换和关闭控件。整组关闭优先在同一轮调用宿主 `sidebarRight.close(tabId)`，不切换剩余标签，也不逐帧点击 DOM 关闭按钮；旧宿主缺少该接口时沿用逐任务关闭兼容路径。Files 的蓝色清单按钮转发树切换，收起后去除树的正文占位。浏览器页面合并为同一卡片的标签组，当前页由宿主焦点和新增标签决定，支持新增、切换、逐页关闭和整组关闭；每页的真实内容、输入和历史保持挂载。标题区分为两行：上行是标签、加号、更多、放大和关闭，下行是后退、前进、刷新和 URL 输入框。原地址 form 保留在正文 DOM 中，ResizeObserver 将其定位到下行占位矩形，不复制受控输入、不移动 React 所属节点；提示语写「输入 URL」，释放时还原原提示语和定位样式。服务器按钮省略。导航按钮转发原动作。地球菜单和截图菜单由 [browser-menu.ts](src/client/compat/browser-menu.ts) 构造；桌面 webview 的 `capturePage()` 返回 PNG 后下载，空页／无接口时禁用，异步结果受节点存活、当前网页及释放状态约束。菜单放进浏览器顶层 popover，按实际高度处理视口边界；空闲画布为空白，实际等待态由点阵层供给，真实网页出现后移除。独立窗口按钮按用户要求不渲染，标题宽度同步收回按钮占位；页面元素选取因宿主暂无接口而不渲染；Files 的 `?` 全目录搜索未接入，仍只过滤已加载行。
+
+释放会移除所有自有控件、接缝、标记与坐标，并把当前会话中由插件浮起的页签 `dock` 回去。宿主的 `dock` 只寻址当前会话，其他会话保留宿主保存的浮层，不跨会话投递 pane id。真实 Chrome 测试覆盖独立分隔、关闭补位、文件组、层叠命中、旧文件重开、会话切换、节点替换、指针身份、键盘及清理。
+
+模型与 effort 控件由新会话页和聊天页共用，选择操作调用官方 ModelDirectory。默认是一个合并按钮：主卡片列常用模型，悬停「思考强度」行在旁边展开 Claude 式档位列表（说明文字、默认档标「推荐」、当前档打勾，点选即提交并关闭）；设置「视图 → 分开显示模型与思考强度」（`view.splitModelControls`）切回两个按钮，模型卡片列出完整目录，思考强度按钮弹出 `EffortPanel` 滑杆。常用模型列表由 `model-controls/favorites.ts` 存在本机 `localStorage`，不写入 profile。新建页与聊天页顶栏都按终端、浏览器、项目文件夹的顺序显示三个入口，转发宿主右侧栏的打开或聚焦操作，仅显示宿主已注册的视图类型。聊天页使用 utilities 列表；新建页的宿主不渲染 utilities，因此通过 `BlankHeaderActions` 在最右侧的 corner 单格槽位显示同一组三个按钮。插件以更低优先级替换该槽位原有的右栏展开按钮，按宿主 `headerBlank` 状态切换两组入口，发送首条消息后隐藏 corner，避免重复；展开动作移进会话 ⋯ 菜单的第一项（`compat/session-menu.ts`），只在右侧栏收起时出现。这三个入口在窄列下保持可见，会话视图入口在右侧工具区前同排展示，窄列仍保留原生「对话／轨迹」两个入口，隐藏「更多」及其菜单。顶栏的收尾内边距同时改按输入面右缘对齐：窄列缩小顶栏收尾内边距，让会话 ⋯ 靠近输入面右边框。宽列使用 12px 收尾。活跃会话的正文、输入框和队列共用宿主的响应式宽度及拖动偏好。工具调用由 `tool-calls` 模块按连续条目分组，默认开启，设置页可独立关闭。`compat/tool-call-groups.ts` 用 `data-chat-flow-kind`、`data-chat-turn`、`data-chat-call-id` 和工具行的 `data-state` 识别同一父容器、同一轮内的连续调用：纯命令显示 `Ran N commands`，读取文件与其他工具按类别组合，例如 `Read 2 files, ran a command, used a tool`。摘要沿用参考图的英文，列表保留宿主原始描述、文件链接和各条详情操作。宿主标记为 `data-chat-group-part="reasoning"` 的已完成思考可以与相邻工具合并，摘要增加 `Thought`，但不计入工具数量；展开后按原始顺序保留各自的详情开关。只含思考的片段沿用原生折叠行；紧随工具之后仍在输出的思考（包括尚无正文、只带思考的回复槽位）也并入该组，作为当前活动在同一行滚动显示 `Thinking`，不再在组下方单独展开；包含正文或未明确拆分的已完成消息不会推断为纯思考并隐藏。正文及其他非工具、非思考条目切断分组；运行中和准备阶段的普通工具并入同一连续组，收起时固定一行显示最新调用描述，旧描述向上退出、新描述从下方进入；一条调用结束、下一条尚未开始时继续停在这条调用的描述上，直到正文（或后一轮内容）出现在这组之后才切换为计数摘要，因此会话进行中不会提前显示「Thought, read 4 files…」，而历史轮次和已结束的轮次始终显示摘要；点击可展开原生详情。审批、未确认状态及包含运行中子调用的条目保持原位可见，失败／中止时自动展开。插件只在首条前插入独立按钮并标记原条目，圆角边框和分隔线跨相邻条目绘制，不搬移或包装 React 所属节点；分组展开与单条详情折叠独立，关闭模块或卸载恢复原始条目。收起分组（包括流式调用、思考自动并入已收起的组）是瞬时 `display: none`，浏览器把滚动位置夹到新底部时宿主会把它当作布局变化，不恢复跟随底部，回到底部按钮因此残留；所以收起后若宿主正显示该按钮且滚动容器已在底部（误差 < 1px，与宿主一致），插件点击宿主自己的按钮交还跟随，跟随状态下不读取滚动几何。文件交付与 Cordis 定义行通过宿主 `data-disclosure-row` 统一列表排版；Cordis 运行／停止／移除保留真实状态，不伪造折叠动作。工具调用中的“查看”检查入口（包括未分组、运行中条目及 Cordis 图标按钮）统一隐藏。`data-cordis-status` 为运行或等待客户端时参与单行切换，等待审批时保留原生操作；业务失败会展开分组。定时任务没有通用状态属性，仅在原生卡片出现直属、带可访问名称的任务导航按钮时确认创建成功并参与分组；未完成、失败、已删除或无法确认结果的卡片保持原位可见，不从文案猜测状态。
+
+本轮变更审阅面板的文件工具行通过 `data-changes-review`、`data-review-tool` 与 `data-open-path-*` 原生钩子限定样式：操作按钮为 24px 点击区、12px 图标；文件应用选单有可用下拉时隐藏直开半边，将原生菜单按钮显示为 14px 横向三点，保留其选单与键盘操作。没有可用菜单时仍保留原生直开入口，不显示无法打开菜单的三点按钮。样式不影响面板标题栏或其他文件预览入口。
+
+正文流式淡入由 `compat/conversation-stream.ts` 随 conversation 模块挂载，参考 [assistant-ui Streaming text](https://www.assistant-ui.com/elements/streaming-text)。只处理 `assistant-step` 内原生 `data-streaming` 正文新增的可见文字，使用 CSS Custom Highlight API 的 Range 将正常正文色的透明度从 45% 以 700ms 独立提升至 100%，不使用主题强调色；保留 Markdown 和 React 文本节点，不延迟输出、不添加文字副本或包裹元素。观察器只扫描变动的正文块，历史正文和挂载时已存在的文字不重播，代码块、链接、文件引用及 compact 思考内容跳过；Markdown 改写已有前缀时撤去旧范围，React 替换等价节点时重绑范围而不重置动画年龄。高亮规则通过 CSSOM 更新，避免逐帧产生 DOM 通知；同屏最多保留 32 批，完成、减少动态效果或卸载时清理自有高亮与样式，保留其他功能注册的高亮。缺少 Highlight API 时沿用宿主输出。
+
+工具摘要切换保留 900ms 最短停留，快速更新合并到最新描述；旧行以 180ms 淡出，新行延迟 40ms 后以 360ms 淡入，两者只移动 4px。切换时先给足新旧文字中较大的宽度，旧行退出后再收窄，避免新描述在移动的省略号后被逐字裁出。工具与思考的尾部展开箭头只在悬停或键盘聚焦时显现，隐藏时保留占位。运行中的工具摘要、原生工具行与 Thinking 都在唯一可见文字上绘制渐变扫光，统一为 2400ms 连续左到右循环；宿主 TextShimmer 的重复文字装饰层始终隐藏，避免字号、布局或动画时钟差异造成叠字，完成后停止。完成摘要只淡入淡出，失败立即展开，减少动态效果偏好跳过文字及宽度动画并禁用扫光。内容搜索 `data-search="matches"` 与文件名搜索沿用同一套主题色和代码预览边框，空结果压缩为单行高度，命中保留宿主文件折叠、行号、截断提示与复制操作。交互参考 [assistant-ui 的 RunActivity](https://github.com/assistant-ui/assistant-ui/blob/main/packages/ui/src/components/react/assistant-ui/elements/run-activity.tsx) 与 [Reasoning](https://www.assistant-ui.com/elements/reasoning)，切换动画由现有 Web Animations API 实现。
+
+Thinking 的折叠行在运行和完成时都只显示标题，正文预览及其扫光副本均隐藏，完整正文仍由宿主的原生展开区呈现。标题翻译同时读取普通文本与 TextShimmer 副本的 `data-shimmer-text`，监听该属性更新，在英文界面为两层生成一致的英文标签，中文界面保留原生标题，避免中文伪元素与英文标题在扫光时重叠。浏览器回归保留宿主 13px 标题和原生双层动画，覆盖新旧分隔结构、深浅主题、扫光周期内仅一份标题可见且位置不变、正文展开与减少动态效果。
+
+工具过程跟随 DSH 文档的界面语言：中文界面使用“思考、读取 2 个文件、运行 1 条命令”等计数摘要，英文界面保留 `Thought, read 2 files, ran a command`。`compat/tool-call-labels.ts` 在中文界面保留原生标题，英文界面仅针对工具和思考行中的已知原生标题生成英文兄弟节点，例如 `Thought`／`Thinking`、`Find files`、`Read` 和 `Skill`；不修改 React 文本，不翻译文件名、模型生成的描述、思考正文或工具输出。两处观察文档 `lang`，语言切换时刷新已有摘要、文件动作和标题，保留分组的展开状态；普通流式更新仍仅重读变化条目。末尾文件摘要卡片的标题、“查看全部”与提示仍按已有偏好固定中文，原生标签和节点在关闭模块后恢复。
+
+文件写入／编辑由 `compat/tool-file-summary.ts` 只读取成功原生行的标题区，提取文件名与宿主增删统计；不读磁盘、不从 diff 推断是否新建。`write` 显示“已写入”／`Wrote`，`edit` 显示“已编辑”／`Edited`，单条与混合折叠摘要保留至多两个文件名，其余显示操作总数，同时列出读取、命令和其他工具计数。只有全部文件操作的增删数均存在时才汇总徽标，缺失统计不视为零。完成行以独立兄弟节点呈现动作文字，隐藏原生标题与字节后缀，文件链接与详情按钮继续由宿主管理；增删数使用主题成功／错误色的浅底徽标。失败、停止、运行中和审批状态不改写为完成提示，关闭模块或卸载恢复原始标题。
+
+写入／编辑的展开详情沿用宿主 `data-diff`：隐藏重复语言标题，将路径显示在每个文件代码框之外，原生各行连续绘制 9px 圆角边框，正文使用中性色，增删行使用主题成功／错误色的浅底，取消原来的左侧色条。复制、换行、多文件路径及省略段折叠仍由宿主处理，不改写原生行文本。宿主的局部 diff 没有原文件起始行号和词级差异数据，插件不推算或补造这两项。
+
+展开详情沿用宿主 `data-terminal` 与 `data-read` 原语：命令栏使用独立圆角边框，等宽输出直接显示在列表背景上；文件路径置于带行号代码框之外，复制、换行及省略行展开操作仍由宿主处理。`compat/tool-call-details.ts` 为命令文本添加独立的着色兄弟节点，保留原始 React 文本，内容更新时同步，取消分组或卸载时移除。命令栏以独立图标按钮复制原始命令文本；异步 Clipboard API 受限时使用本地兼容回退，仅写入成功后显示勾，约一秒后恢复，释放时撤下按钮并恢复宿主复制入口。文件路径只显示宿主提供的值，不从相对路径猜补绝对路径。文件预览移除“显示 N / M 行”提示，以最高 320px（窄窗口不超过 50vh）的内部滚动区展示本次工具返回的全部行；点击或 Tab 聚焦后可用键盘滚动。适配层调用宿主已有的省略行展开按钮，不另读磁盘或补造未返回的文件内容；释放时恢复原生预览折叠与焦点属性。技能加载结果沿用文件读取的边框、字体、行号栏与滚动高度，隐藏原“说明”卡片头；适配层只为原始文本生成独立的逐行展示节点，保留空行及原始技能内容，不执行其中的指令，更新与卸载时同步清理。`glob` 的 `data-search="paths"` 结果复用相同代码框、字号、行号和滚动条，自动展开本次已返回路径的省略段，并以图标按钮复制完整返回路径列表；保留搜索截断统计及宿主恢复信息，不补造未返回的匹配项。子智能体等结构化 ToolDetails 结果同样统一圆角边框、13px 等宽字体、列表滚动与字段间距，隐藏重复的“调用结果”卡片标题，保留字段内容、状态徽标和原生操作。通用工具的原始输入／输出兜底卡片也按相同代码框与滚动条排版，输入／输出标签、空对象参数和错误色保持原有语义，不按具体工具名称逐个适配。
+
+Composer 的状态栏在宿主里是可换行的（`InputBar.module.css` 的 `.yhfFVG_row { flex-wrap: wrap }`），窄列下尾部簇会被换到自己的一行、状态栏长高一行；插件取消换行，并把收紧的余量交给模型名（chip 自己省略号截断），前导工具组与 effort 保持原尺寸。这一行的高度是 Composer 底部内缩与 dock 偏移的量测基准，所以它必须是一行。
+
+会话视图沿用宿主注册的标签和溢出菜单。标签位于右侧工具区前，与标题同排，选中项以下划线标识。标签栏的实测宽度随会话列变化，宿主根据宽度和入口固定状态决定行内标签与菜单内容。长标题截断，原生节点继续处理选择、固定与菜单。
+
+小鲸鱼通过 `shell.overlay` 挂载，位置由 `compat/pet-anchor.ts` 量测。它只显示在 `data-phase="hero"` 的新会话页；输入卡上方有其他内容或发送回显时收起。模型与 effort 选单使用原生 Popover 顶层显示，覆盖重叠的鲸鱼，不因选单打开而隐藏宠物。
+
+侧栏区头那枚视图选项按钮打开插件自己的卡片（同一个 `shell.overlay` 槽的另一位占用者）：状态在第一段，分组方式和排序方式在第二段，空分组开关在第三段；值行是「维度 + 当前值 + ›」，选项在二级卡片里，清除筛选按需放在底部。宿主那张菜单只被读与点：三个视图设置存在浏览器本地，公开的 `UiWorkspace` 面不发布它们，所以 `compat/view-options.ts` 用 `data-ccd-view-options-driving` 隐藏宿主卡片、读出三段的值、并点它的行来改值；读不出宿主卡片时，将点击交给 DSH 自己的菜单。状态、活跃／已归档／全部与两条自有行由插件命名，分组和排序取宿主原词。
+
+主卡片宽 200px、子卡片至少 128px、间距 1px，子卡片顶部对齐当前行。10px 圆角、0.5px 轮廓与浅色菜单配色按用户参考图绘制，局部变量为 `--ccd-view-menu-*`，深色沿用主题色阶。主卡片允许溢出以防原生 popover 裁掉子菜单；悬停和点击都展开当前维度，通用键盘走位由卡片处理一次。ARIA 与定位只在值变化时写入，避免观察器通知自身形成死循环。真实 Chrome 测试验证命中、间隙穿越、边缘对齐、浅深色配色与左右展开时的选项映射。
+
+`显示空分组` 是插件设置（`view.showEmptyGroups`，默认关，设置页与卡片写同一字段）。`compat/empty-groups.ts` 按宿主渲染的行判定展开分组；折叠分组则读取 `sessions.list` 与 `workspaces.list` 的权威成员、归档状态，结合菜单驱动发布的当前筛选判断，树模式保留有会话的祖先目录。数据尚未就绪时保留未知分组，临时新会话即使是当前会话也不算可见历史。观察器及源订阅跟踪成员和筛选变化，排除自身标记。没有任何历史会话时，无论空分组开关如何，隐藏分组标题，在列表区域居中显示「你发起的会话会显示在这里」和淡色像素装饰；第一条历史会话出现后恢复列表。仅筛选结果为空时，显示筛选提示及「显示所有会话」按钮；按钮通过宿主菜单选择全部会话。驱动会等待 React 提交菜单关闭，再清理隐藏标记，避免旧 DOM 导致再次切换并打开原生菜单。
+
+会话行的尾部只放一枚 ⋮，它点开的是宿主自己那张卡片：**置顶、重命名、分叉、归档**四行正是宿主 `ui-workspace` 注册进 `sidebar.workspaces.session.menu.item` 的四项。宿主在同一行上还挂了自己的两个悬停按钮（归档与置顶，注册进 `sidebar.workspaces.session.row.action`），[sidebar.css](src/client/features/sidebar/sidebar.css) 把这条列表的出口整个 `display: none`——`renderSlot` 的出口是带行内 `display: contents` 的 `div[data-slot]`，所以要 `!important` 才压得住——于是指到一行上只出现一枚图形，而这两件事都还在卡片里。按钮节点、回调与宿主的悬停状态仍归 React，撤掉规则就是宿主自己的行。⋮ 自身按参考图给 20px 盒、6px 圆角与 `--ccd-hover-strong` 的悬停填充（落在已经填色的行上，取 `--ccd-hover` 会同色），图形用顶栏那枚竖排 ⋮（宿主 `IconEllipsisOutlineRegular` 的同一几何，`--ccd-icon-more`）。单元测试钉规则、真实 Chrome 测试钉盒子、焦点、命中与两种状态下的填充。
+
+「搜索」是「新建」下方的一条导航行，与面板行同高、同内边距和 16px 图标位，悬停显示宿主的 ⌘K 绑定。行是 `compat/sidebar-search.ts` 自己的按钮，插在「新建」节点之后，React 重渲染后由观察器放回；原标题行隐藏「最近会话」标题，仅保留右侧筛选视图按钮。宿主搜索框仍留在 React 所属的表头中，`sidebar.css` 将其裁成 1px 透明块而不设 `visibility`，宿主 `session.search`（⌘K）仍能聚焦它；模块在捕获阶段监听这次 focusin，先让输入框失焦再打开搜索面板，对话框因此不会把焦点还给隐藏输入框。折叠轨道与释放时移除行、标记和监听，宿主搜索恢复原样。
+
+搜索面板由 `features/search-palette/` 注册为 `shell.overlay` 中的 React 条目，用原生模态 `<dialog>` 绘制：顶部无边框输入框与关闭按钮、类型页签、分段结果、当前行尾部的 ⋯ 与 ↵、底部按键提示。540×468px、16px 圆角、81px 头部、29px 行与 32px 底栏按参考图 @2x 量取；行、页签与输入文字与侧栏导航同字号，选中页签与当前行底色、未选中行文字色取 `--ccd-palette-*` token。每次打开重新挂载正文，从「全部」与空查询开始。
+
+数据由 `compat/search-palette-port.ts` 读宿主权威目录：`sessions.list`（排除临时空白会话与子智能体）、`workspaces.list`（工作区顺序、归档与置顶集合）与 `schedule/catalog()`（打开时刷新，跟随 `schedule/changed`）；未提供定时任务接口的构建不显示该页签。空查询时「全部」按最近活动混排会话与已运行过的任务（最多 8 条），下方「操作」为新建会话；其余页签列出各自条目。输入后按标题匹配（项目兼查路径，任务兼查指令），按前缀、词首、任意位置排序，已归档会话排在末尾；输入停顿 180ms 后调用宿主 `sessions.search` 内容检索，标题未命中的会话附带摘要追加在后。「全部」每类最多 6 条，切到对应页签查看全部。任务标题后缀由存储规则生成（每天／工作日／每周几／每 N 分钟／一次性日期／Cron），运行次数读 `schedule/history`（每次打开每个活跃任务最多读一次，满 100 条显示「100+」）。
+
+↵ 打开会话（`uiWorkspace.openSession`）、在项目中新建会话（`startSession(workspaceId)`）或打开任务：选中 `schedules` 面板后等待对应卡片出现并点击，由 `compat/schedule-detail.ts` 展开整页详情。⌥↵ 或 ⋯ 打开行操作：会话为打开、置顶／取消置顶、创建分支、归档／取消归档，项目为新建会话与复制路径，任务为查看与打开所在会话；置顶和归档保留面板，失败在底栏上方提示。Tab 以当前输入调用 `startSession(undefined, { prompt, whenDraftExists: 'append' })` 新建会话，不覆盖已有草稿；`/` 开头列出类型筛选，← → 在光标位于文本边缘时切换页签，空输入时退格回到「全部」，Esc 先关行菜单再关面板，点击遮罩关闭。项目动作通过 `margin-left: auto` 统一靠右，按钮为 22px、图标为 14px；项目加号常驻，⋯ 在悬停、键盘聚焦或菜单打开时显示。展开侧栏隐藏工具栏中的「添加工作区」，折叠轨道保留宿主入口。`compat/browser-header.ts` 仅负责最近会话标题的本地化改写与释放还原（标题由 `sidebar.css` 隐藏），不再合并表头或监听树滚动。
+
+上下文圆环点开的是插件自己的分解面板（同一个 `shell.overlay` 槽的第三位占用者，order 40）：**收起态**是标题行（`上下文窗口` + `~已用 / 窗口 (百分比)` + 右端 chevron）加一条 4px 分段条，**展开态**在同一头部下加分类行（色块 + 名称 + token + 百分比）与按需出现的逐项分组。没有底部按钮：标题行整行就是开关，`aria-expanded` 挂在它上面。分段条按 token 权重分配 flex，已用段之间 1px、与「自动压缩余量」灰段之间 4px，宽度不足 2px 的分类整段不画（与参照图一致）；空闲空间是轨道本身。
+
+环的点击在捕获阶段被 `compat/context-panel.ts` 拦下并 `stopPropagation`——宿主的处理器是 React 在根节点委派的 `onClick`，所以在按钮上停住事件就不会走到它——因此宿主那面板从不打开，插件自持开合状态（驱动宿主开合不可行：宿主的 `useDismissOnOutsidePointer` 会把我们面板里的点击当成外部点击）。`data-ccd-context-open` 与 `composer.css` 里那条 `visibility: hidden` 是兜底而不是机制。会话切换、页面切换或环本身消失都会关闭面板；每次打开都从收起态开始。空会话没有宿主圆环时，驱动在 dock 中添加真实按钮，沿用同一位置与点击流程；面板只显示标题、0 和空进度条，不展示明细开关。有用量后移除占位按钮，交回宿主圆环；卸载时一并清理。
+
+数字全部是宿主的：头部读 `contextPressure`（与环同一个值），分类行读 `contextBreakdown` 加上插件投影 `ccdContext` 重算的两份明细，`sessions.list` 的 `projectionsBySession` 里三者在同一处到达。分类行与空闲空间按窗口缩放；头部采样值与分类估值可能有差异，面板不展示「估算差额」行。真实会话上这套折叠与宿主自己持久化的 `{systemTokens, toolsTokens, messageTokens}` 逐 token 相同。标题与明细分组的展开状态仅在本次打开期间保留；每次重新打开时全部收起。
+
+点击鲸鱼会等概率播放喷一口水、轻弹眨眼、摆尾回应之一，播放期间忽略连点。动作只属于宠物自身，不读写会话；隐藏页面或卸载组件时取消，减少动态效果偏好下只显示短暂闭眼反馈。
+
+窗口滚动条统一由 [scrollbars.css](src/client/theme/scrollbars.css) 使用原生绘制：6px 轨道、4px 灰色滑块、圆角端帽，横纵同规格。长度和位置由原生内容比例决定，不再叠加居中胶囊、半长背景或沿滚动方向的内缩，滚动到两端时直接对应轨道起止位置；宿主主动隐藏的横条仍保持隐藏。[scroll-pill.ts](src/client/compat/scroll-pill.ts) 保留装配入口名，但只通过一次捕获阶段的 `scroll` 监听维护 `data-ccd-scrolling`，停下 0.8s 后清除，不再创建浮层、扫描页面或监听每个容器。工具卡片、模型菜单和其他功能只定义滚动容器，不各自覆盖滑块几何；卸载时清除监听、计时器和标记。
+
+侧栏「视图选项 → 分组方式」提供「按状态」，由 `view.groupByStatus` 持久化。开启时通过原生菜单切换为单列表，再按 `uiSession.sessionStatus` 将会话分为需要输入、处理中和空闲。旧构建读取宿主行 StateDot 的 `data-state`。子任务按目录中的 `origin=subagent` 与直接父级归属。最上方「已置顶」分区读取 `workspaces.list.pinnedSessionIds`，分区内保留宿主行顺序。原生行负责拖排、置顶、菜单、重命名和会话选择。主题用 flex order 与 reading-flow 提供分区展示和阅读顺序，并补充方向键、Home、End、Enter 和空格导航。空分区隐藏，点击分区标题可收起，正在查看的会话保留可见。收起记录保存在 `localStorage` 的 `ccd-status-collapsed`。卸载时恢复属性和监听。
+
+字符水波纹由 `features/new-session/ripples.ts` 绘制，`compat/hero-canvas.ts` 按宿主 `data-phase` 管理装饰 Canvas。字符为固定生成纹理，不读取对话内容；主题墨色集中在 token 中，绘制上限 60fps，以连续帧期限适配 60/120/144Hz 显示器、像素比最多 2。多层波前通过连续噪声扭曲并交错，只留下细波峰再沿长度切开，呈现稀疏的灰色短条；整体沿连续时间轴常驻流动，强度在 0.8–1 之间轻微起伏；常驻背景使用灰色 `--ccd-hero-ripple-idle-ink`，点击波前使用主题墨色 `--ccd-hero-ripple-ink`（浅色主题淡紫、深色主题亮蓝），两路光分开计算，点击波带经过处直接覆盖灰色场、只显示主题墨色，不做混色；蒙版逐格写入颜色后再由字符层裁切。点击空白处叠加向外传播的波前：三道波带相隔传出，由点击位置与时间决定形态，约一半展开为尖端朝下的饱满心形，其余保持不规则圆形，同一次点击的形态不变。心形轮廓是真实心形曲线的低阶余弦级数，点击点位于偏下处，横向略加宽以保持饱满；圆形与心形的起伏都按半径比例计算，圆形幅度更大，外圈另有噪声扭曲；波带随扩散逐渐变宽，明暗不均；触点先给出短暂柔光，前段保留亮度、后段平滑淡出，2.8 秒后释放。连续点击各自保留原点与计时并叠加，不重启已有波前；输入卡、按钮、链接、菜单与顶栏不触发，事件不被拦截。点击位置按画布比例保存以适应缩放，不跟随鼠标移动；点击光场独立于背景淡入，刚打开主页也能反馈。光场在粗网格上计算，再平滑插值到固定字符行，避免逐字符计算噪声。标题栏另设不接收指针事件的装饰 Canvas，覆盖主页内容列正上方的窗口标题区域，主页顶栏背景透明；进入聊天后移除两层 Canvas，窗口隐藏、零尺寸或系统减少动态效果时停止动画并清除点击波前。`hero-ripples` 开关独立控制主页与标题栏的波纹背景及点击扩散，默认开启；关闭时不挂载 Canvas、动画帧或相关监听器，保留新建页布局与问候语。该效果仍依赖 `new-session` 模块开启。
+
+「主页背景动效」由 `features.hero-ripples` 与 `personalization.heroBackground` 控制，支持字符水波纹、宠物畅游、宿主像素鲸鱼与关闭。宿主通过 `canvas[data-home-whale]` 提供主页鲸鱼，选择主题动效或关闭时隐藏该层。聊天页通过 `personalization.chatBackground` 独立选择水波纹、宠物畅游或关闭，动效只在活动会话的内容层后方绘制，使用较低透明度。主页 Canvas 还延伸到标题栏。宠物畅游的点阵几何按尺寸缓存，两层噪声仅在跨过时间片时重新采样。
+
+Composer 加号保留宿主命令按钮及其工具组归属，`theme/composer.css` 用与发送按钮相同的末行定位基准把它放入输入面左侧，编辑器与占位文字预留相同的前导宽度；语音录制时保留工具组、加号与该留白。主页的工作区／已有模式选择行叠到输入面与原有工具行下方（整行绝对定位，工具行按同一行宽预留），采用轻量 chip；不搬移 React 所属节点，不增加环境选择或中央项目卡片。工作区与模式按钮各取内容宽度，只对过长工作区名设响应式上限。`compat/hero-chips.ts` 量测整行并发布 `--ccd-workspace-seat`，工具行预留整行加一个间距；标签、字体或窗口宽度变化时重新量测。
+
+新会话页的工作区选单由 `compat/workspace-menu.ts` 按参考图补齐：卡片顶部插入「搜索文件夹…」搜索行，打开即聚焦，按名称过滤宿主行（只加 `data-ccd-filtered` 隐藏，不改 React 列表），回车选第一条匹配，上下键只在可见行间移动；工作区行上方标题为「最近」，宿主以省略号结尾的「添加工作区…」改写为「打开文件夹 . . .」。footer 之后追加插件自己的「分支」行（`compat/workspace-branch.ts`），选中行的勾选位置对应 `workspaces.list` 快照中的工作区。读取走 Host 路由 `/api/ccd-git-branches?workspace=<id>`（`host/git.ts`），只注册 GET 读取接口，不提供原目录分支切换的写入接口；客户端只传注册工作区 id，Host 从 `workspaceRegistry` 解析目录，以无 shell 的 `execFile` 运行 Git，禁止凭据提示、可选锁与 fsmonitor，5 秒超时，最多列 200 个分支。工作树关闭时分支行置灰；开启后悬停、点击或 → 键展开右侧分支卡片，选择仅暂存本次新工作树的基准分支，不调用原目录的 `git switch`。子卡片嵌在宿主卡片内并使用手动 popover，带搜索与勾选，关闭工作树立即收起子卡片。`compat/composer-menus.ts` 的向上翻转跳过嵌套子卡片。宿主菜单只接收锚点几何，没有按钮节点，outside-pointer 判定会在按钮按下时先关闭、随后 click 又打开；插件仅拦截菜单已打开时该按钮的 `pointerdown` 传播，让宿主原有 click 完成一次关闭，释放时移除监听。
+
+新会话页的文件夹 chip 右侧追加 Claude 风格的「工作树」切换 chip（`compat/workspace-worktree.ts` 的 `mountWorktreeChip`），开启后以强调色底高亮，按当前新会话保存选择，不立即创建目录；会话所属工作区由 `workspaces.list` 快照的 `sessionIds` 反查，首次发送前切换文件夹时已开启的选择随之迁移。GET `/api/ccd-worktree?workspace=<id>` 检查可选 `worktrees` 运行时、仓库与已提交的 HEAD；首次检查中、运行时未启用、非 Git 仓库、无提交或无法识别时隐藏 chip，其余不可用状态置灰并通过提示说明原因。返回新会话输入区、切换会话或工作区、窗口重新聚焦或页面恢复可见时重新检查；输入区可见期间每 10 秒刷新，合并同工作区的并发请求并保留上次状态，释放时清理定时器和监听，404 提示「需重启 DSH」，说明 Host 尚未加载新增接口。`compat/workspace-worktree-port.ts` 从工作区 chip 所在的 `data-conversation-session` 读取会话身份。宿主没有 before-send 注册入口，因此仅在插件挂载期间包装 `conversation.sendSession`：首次普通消息发送前等待创建，成功后原样转交文本、附件和发送模式；失败返回宿主 `SubmitOutcome`，由原生输入流程恢复草稿、引用与附件并显示错误。创建中提示通过输入壳的通知存储按实例撤销，成功、失败、取消或插件释放时清理，保留后续其他通知；没有可清理存储时不发布常驻提示。释放时恢复原方法，命令仲裁仍由宿主处理。
+
+POST `/api/ccd-worktree` 只接收工作区和会话 id。`host/worktree.ts` 校验注册工作区的会话成员，并通过 `sessionController.resolveAgent` 取得调用 Agent，在 `runMaintenance` 内核对原始目录、拒绝已有用户消息或回合的会话，再调用 DSH 的 `worktrees.create(agent, { from? })`。名称和路径由运行时生成，基于暂存分支（未选择则使用 HEAD），沿用会话沙箱及 `workingDirectory` 持久化；未提交文件保留在源目录。客户端合并同会话的并发创建；Host 在本次挂载中保留成功结果，以便响应丢失后重试不会重复创建。失败允许显式重试，可能残留的目录与分支由宿主错误说明，不自动删除。该功能不依赖工具插件的模型调用，也不强制加载可选运行时。
+
+状态分组的收尾样式限定在状态视图：标题与原生会话文字对齐，统一 28px 行节奏、字号与缩进，并预留原生 ⋮ 的宽度以稳定长标题省略。子任务每行绘制连续竖线，末项以圆角肘线收尾，单个子任务也使用同一规则；数据、点击动作与分组逻辑不变。
+
+顶栏的子代理数量、团队入口与后台任务入口由 `view.showHeaderSubagents`、`view.showHeaderTeam`、`view.showHeaderJobs` 分别控制，默认关闭。`features/conversation/header-actions/visibility.ts` 在 `conversation.session.header.actions` 列表中以更低 priority 注册同 id 的空渲染器，分别覆盖宿主 `subagent-catalog`、`agent-team` 与 `job-list`（order 20）条目；打开开关或释放聊天页模块后撤销覆盖，恢复原生入口。不操作后端服务，后台任务继续运行，也不覆盖子代理谱系导航、侧栏树或其他顶栏条目。设置页三项通过同一 Host 配置传输即时写入。
+
+## 转录更新的性能边界
+
+工具分组按 flow seat 用 WeakMap 缓存解析结果，变更只使目标 seat 与外层嵌套 seat 失效；非 seat 包装节点不缓存。分组属性仅在值变化时写入，避免相同的可见性和展开属性反复唤醒详情观察器。分组、标题翻译与详情装饰的结构通知只扫描新增子树，不再扫描 childList 目标下未变的历史；文本通知只定位所属区域。标题与详情的历史所有权清理仅在移除或属性变更后执行，流式文本不触发历史清理。
+
+可用 `node scripts/profile-transcript.mjs current` 对真实适配器运行独立 Chrome 演示场景，生成 DevTools 时间线、CPU profile 与调用计数到 `artifacts/performance/`。条件、结果与局限见 [2026-10-26 性能采样](docs/research/performance-profile-2026-10-26.md)；真实 MutationObserver 回归在 `tests/transcript-performance-browser.test.mjs`，不以耗时阈值判断 CI 成败。
+
+## 配置与生命周期
+
+组件性能核验可通过 `CCD_PERF_DIR=artifacts/performance/components CCD_PERF_TRACE=1 node --test --test-concurrency=1 tests/*-browser.test.mjs` 为已有浏览器夹具启用 CDP 指标、Event Timing、长任务、CPU profile 和时间线；不设置环境变量时沿用原执行路径。用 `node scripts/summarize-page-performance.mjs artifacts/performance/components` 汇总。覆盖范围与实机录制边界见 [组件响应核验](docs/research/component-response-audit-2026-10-26.md)。模型图标匹配按首词／完整 compact 文本索引候选，保留原始全局优先级，并用最多 2048 条的缓存复用模型及 provider 的命中／未命中结果。
+
+Host `Config` 的 `.volatile()` 字段通过 DSH 设置服务投影到 `configForms`。客户端订阅 `ui-skin-ccd-style`，配置变化时释放旧作用域，再挂载主题与模块；相同配置跳过重复挂载。
+
+安装 bundle 设置 `enabled: true`，用户层配置优先。Host schema 与尚未加载的配置使用 false 兜底。配置页通过宿主 `settings.section` 注册为总设置页的「Claude 主题」独立栏目，注册在常驻作用域，独立于风格总开关；沿用原配置，不再注册插件行内表单。
+
+注册、样式、监听、观察器与异步资源由 CleanupScope 管理，按逆序释放。DOM 适配保存原属性与内联值，在释放时恢复。
+
+## 主题与宿主适配
+
+`theme/tokens.css` 集中声明尺寸、颜色、图形与字体变量；`palette.ts` 计算派生色，`tokens.ts` 合成 `{ light, dark }` token 对，由宿主 `theme.overrideTokens` 下发。配色跟随 DSH 的主题偏好，字体默认以 Geist 开头。
+
+版本相关选择器集中在 `compat/host-dom.ts`。各适配模块量测宿主布局并发布属性或 CSS 变量，框架列宽和界面业务仍由宿主持有。
+
+平台差异由宿主属性分流：`data-platform="darwin"` 只标记 macOS，交通灯与折叠侧栏的窗口控件几何都限制在该作用域内；Windows 由 `data-windows-titlebar` 标记，宿主在窗口上方另加 40px 标题栏条带，侧栏开关、原生「应用／编辑」菜单和窗口按钮都在其中，插件只让该条带沿用配置的侧栏配色，不移动其中的控件。
+
+同一版本的 macOS 和 Windows 安装包可能使用不同的 CSS Module 前缀。各平台的映射登记在 `compat/host-builds.ts`，窗口骨架出现前按平台选择，出现后按 frame 类名识别；遇到未登记的 frame 时，`watchHostBuild` 会记录诊断并在设置页提示。`dom.mountStyles`、`hostSelectors` 和 `hostAnchors` 共用这些映射。用 `scripts/host-prefixes.mjs` 从目标 `app.asar` 提取模块，沿用已知 hash 时核对 owning bundle，否则核对完整的 local 名称集合。
+
+macOS `0.2.2-rc.2` 沿用 `PIRFFq_frame` 所属前缀族，移除了独立的会话日志菜单按钮和实验团队模块，CSS Module 映射改用模板字符串打包。核对这些旧模块时，以保留它们的 `0.2.2-rc.1` 归档通过 `--authored` 提供参照。Menu、Modal、RiskConfirmation 和 MarkdownText 的共享类随前端包更新，独立由 `aliasHostSelectors` 处理；`menuRowClasses` 为插件生成的菜单行提供各代类名。新版会话头部通过宿主共享上下文菜单显示操作，适配从展开的会话按钮定位该菜单。
+
+## 统计数据
+
+统计卡片的界面文案集中在 `features/statistics/locales.ts`，按文档 `lang` 选择中英文，包含页签、范围、指标、模型图例、空态与无障碍名称；日期提示和底部书籍名称／比较句同步切换。语言纳入卡片渲染键，切换时保留统计页签、时间范围和本次挂载固定的书籍随机选择；只刷新显示，不重读日志或重新请求统计。数字、模型名和 token 口径保持不变。
+
+`features/session-info` 在 `shell.overlay` 注册会话右侧信息卡片，并在 `conversation.session.header.utilities` 的 order -20 注册会话栏开关，位于终端左侧、宿主 Forge 变更请求按钮（order -8）之前，沿用工具按钮几何与蓝色选中底色，按钮外侧绘制竖线。`compat/session-info.ts` 观察当前活动会话内容区，给聊天区域预留 316px；卡片轨道宽 308px、左右留白各 10px，卡体 288px，最右侧留给聊天原生滚动条。卡片按参考图取 14px 圆角、细边框、与画布同色的平面底（无阴影）、12px 卡间距；默认顺序为环境、上下文、会话用量并全部展开。环境卡是「图标 + 值」行，字段名放在图标的无障碍名称与提示里；上下文行按占用从大到小排，自动压缩余量与空闲空间固定在末尾，配色是卡片自有的参考色（工具蓝、消息橙、MCP 绿、技能黄、其余灰），与弹出面板的 `--ccd-context-*` 分开。聊天滚动面用负外边距延伸到卡片右侧，并用内边距留出卡片轨道。宿主按会话列全宽保存拖动偏好，主题把可调范围映射到卡片左侧，并将两个拖柄置于阅读列的两侧。手动开关写入 `ccd-session-info-open`，选中态跟随实际可见性。宽度低于 936px 或高度低于 400px 时撤销预留并关闭卡片，恢复到 960×424px 时仅在未手动关闭的情况下重开，避免拖动边界闪烁；原生右栏展开时，内容区标记改为 `data-ccd-session-info="overlay"`，撤销聊天区域和滚动面的 316px 预留，卡片以 z-index 20 浮在会话右上方，仍限制在会话内容区内，不占用工具栏宽度；浮层宽度关闭/重开阈值分别为 332/356px，高度阈值沿用 400/424px，全屏工具仍优先显示。原生右栏收起后恢复独立轨道布局。右栏状态仅从当前会话且未被 `hidden`／`aria-hidden` 隐藏的面板读取；宿主为后台会话保留的展开或全屏状态不改变当前卡片布局。卡片折叠与顺序写入 `ccd-session-cards`，上下文卡跟随 context-panel 开关，整个信息区跟随 right-panel 与 conversation 开关。
+
+会话用量直接读取宿主 `tokenUsage` 和 `sessionStats` 整日志投影：输入为 uncachedInputTokens + cacheReadTokens + cacheWriteTokens，缓存命中率以全部输入为分母，TPS 为 decodeTokens / decodeMs × 1000，步骤结算后更新；缺失投影或无分母显示不可用。`ccdSessionInfo` 只补整日志人类提示次数，包含分叉继承前缀，与原生用量口径一致，不使用全局统计卡的聚合快照。环境卡经 `/api/ccd-session-environment?session=…` 读取 `sessionQuery.observeSession` 的 workingDirectory 投影（回退 header.cwd），不恢复 Agent、不读取客户端指定路径；释放 observation 后用只读 Git 查询当前分支、分离 HEAD 及 linked worktree 状态。仅卡片可见时每 30 秒刷新环境，切会话、隐藏和卸载时中止请求，延迟响应不能覆盖新会话。
+
+环境卡的工作目录、工作区与工作树值保持单行并在溢出时省略；`InfoText` 在悬停或聚焦 400ms 后用顶层 popover 黑色提示显示完整值，避让视口边缘，滚动、失焦、Escape 或卸载关闭。宿主未注册环境接口的 404 单独显示「需重启 DSH」，与目录缺失和 Git 查询错误区分；新增宿主接口或投影需完整退出并重新打开应用，仅重载 renderer 不会更新宿主。
+
+上下文卡的指令文件和技能行是带下划线的按钮，环境卡的工作目录是悬停才显示下划线的按钮。指令文件的 `~`、`$DSH_HOME`、`$DSH_AGENTS_HOME` 显示路径由环境接口的 `homes` 还原（`shared/session-info.ts` 的 `instructionFilePath`），项目内路径相对工作目录；根目录未知时该行保持纯文本。`sidebarRight` 与 `remote.skills` 不在插件必需依赖里，都经 `ctx.inject` 取得。技能行点击时经 `remote.skills.list` 查 SKILL.md 路径，不在渲染时拉取目录；内置 Office 技能没有 `path`，`skills/list` 又不转发 `resourceBase`，这时改问宿主半部的 `/api/ccd-session-skill`，它按名字查 `skills` 注册表并由目录拼出路径，只返回已注册技能的文件。文件用 `compat/sidebar-view.ts` 的 `fileAddress`（重述宿主 `fileAddressFor`，测试比对两者）组地址后经 `sidebarRight.openResource` 打开，与文件树同址，因而复用已打开的预览；工作目录经 `compat/sidebar-view.ts` 聚焦文件树并在右栏收起时展开。工具行和 Git 分支在宿主没有对应视图，保持纯文本。
+
+`useCardDrag` 以 Pointer Events 驱动整张卡片：标题与非交互内容均可起拖，移动超过 5px 后捕获指针，直接平移原卡片节点并为其余卡片预览插入位置，松开才提交顺序；不使用只拖动手柄图像的 HTML Drag and Drop。Escape、指针取消、失焦、窗口缩放、会话切换和卸载撤销几何及监听。会话用量字段只渲染文字，不挂载 InfoText 或 tooltip；TPS 保留原有已结算平均值口径。
+
+Host 注册 `ccdUsage` 会话投影单元，折叠提示数与输入、输出、缓存用量，按天、小时和模型聚合。水位与 durable 检查点由宿主的 `sessionProjectionCache` 管理；缺失数据在后台补齐。
+
+`/api/ccd-stats` 通过宿主鉴权 fetch 通道提供快照。浏览器读取快照并渲染 Overview／Models 与 All／30d／7d；首次数据准备完成后显示卡片。聚合服务随总开关启用，卡片显示由 statistics 模块开关控制。
+
+历史日志最多并发读取四个，待处理任务按会话 id 去重；会话删除或已有可用缓存时取消其排队任务。后台完成读取只在有效用量改变时标记汇总失效，在接口读取快照时再统一聚合；不变投影（包括同值新对象）复用汇总，折叠进度和失败数变化只替换元数据，不重新遍历用量。跨本地午夜仍使滚动日期范围失效。卸载后正在等待的读取只释放句柄，不再折叠日志。
+
+浏览器统计源默认由首页 hero 的卡片位置激活；进入已有会话、设置等页面或隐藏窗口时暂停轮询、取消当前请求，并保留最后快照，回到可见首页时先展示缓存并立即刷新。首页阶段原地变化也会同步需求，页面不在场时不因流式结构变化反复扫描整页。有效展示数据不变时复用卡片节点，只有时间戳变化不通知订阅者，只有进度／失败数变化不重建卡片；本地午夜的刷新计时及日期比较仍会更新热力图和日期范围。延迟返回的旧请求不能覆盖新快照或重新启动轮询。相关回归为 stats-source、stats-service、stats-equality 与 new-session-toggle-browser。
+
+## 上下文分解
+
+Host 注册 `ccdContext` 会话投影单元。宿主的 `contextBreakdown` 只发布三个数（系统提示词／工具／对话），说不出是哪个工具、哪个指令文件、哪个技能占的，所以这个单元按 token meter 自己的启发式（4 字符 1 token、每块与每条消息 4 token 结构开销）重新计价每个产生消息的事件，并严格照 `surfaceOp` 处理替换——一次压缩是覆盖一段范围而不是追加。保留的表面节点连同各自的价格存在状态里，读取时汇总成三类行；`stateVersion` 为 1。
+
+自动压缩余量取自 loader 里启用且声明了 `thresholdRatio` / `headroomTokens` 的条目，阈值按 `floor(min(窗口 × 比例, 窗口 − 输出预留 − 余量))` 在读取时算出；没有这样的条目（本机 `compaction-basic` 是 `disabled: true`）时整行不画，而不是按默认值硬算。
+
+## 构建与分发
+
+Host 构建为 ESM，运行依赖外置。Client 打成 CommonJS factory，并包装为 `window.__ModuleLoader__.load({ id, factory(require) })`；React、Cordis 和 DSH 静态共享库由宿主模块表提供。CSS 作为文本打入客户端，在模块挂载时加入文档。
+
+安装包包含 `lib/`、`cordis.patch.yml`、README、LICENSE 和 package.json。Geist 字体与 OFL 许可保留在仓库中，供本机安装。
+
+`npm run check` 执行类型、模块边界、颜色归属、文档链接、测试、构建和包内容检查；`npm run pack:local` 通过同一套检查后生成 tarball。
+
+真实宿主验收由 `scripts/host-smoke.mjs` 独立执行：在隔离的 DSH_HOME 与 Electron 用户目录中启动打包好的 macOS Desktop，经宿主 CLI 安装 tarball，以原生输入事件检查界面、权限及配置持久化，并保留失败截图、DOM 和日志。`host-compat.yml` 从官方更新清单发现 macOS ARM64 候选，核对下载大小及 SHA-512，再运行同一验收；成功缓存绑定宿主清单和插件提交。范围、命令与证据说明见 [真实宿主兼容性验收](docs/host-compatibility.md)。
+
+权限菜单按参考图排列为「自动、手动、接受编辑、计划、跳过权限确认」，显示数字 1–5。权限与 Agent 预设菜单观察文档 `lang`：语言变化后先撤回旧语言的显示改写，再重建匹配表；原生菜单内原地更新的文字也会重新适配，避免英文启动后切中文时退回原生权限名称。Agent 预设的标题和完整说明始终保留宿主节点与原文，不再隐藏原生说明或插入精简文案；仅附加菜单标记与数字快捷键。前、后四项保留 DSH 的自动审查、只读、工作区修改及完全权限动作与原生确认流程；自动审查保留实验标记，手动说明保留只读限制。`compat/permission-plan-port.ts` 优先读取并订阅当前会话 `projections.faceOf("plan")`（与宿主计划按钮相同，包含 pending 目标状态），仅在没有活动绑定时回退到列表投影；实时值缺失时不回退到旧列表状态，通过宿主命令通道执行 `/plan` 与 `/plan off`；计划开启时菜单与按钮显示计划状态，权限按钮隐藏原权限名称，并隐藏宿主独立的计划按钮，只保留一个模式入口（直接匹配宿主计划按钮的无障碍名称，不依赖单组件槽位外框）；隐藏名称的选择器优先级高于窄栏强制显示名称的规则。切回权限项先退出计划，再转发原生按钮。缺少计划投影时不显示计划项，失败在菜单显示并保留当前状态。仅菜单打开时响应无修饰数字键；输入控件、输入法组合与按键重复不触发。勾选与数字对齐名称行，说明行跨越尾列；名称为 14px 常规字重，说明与数字为 12px 弱化色。权限菜单按内容收窄，最小 202px，Agent 预设菜单保留 280px。输入面圆角采用 12px。
+
+`personalization` 是独立的 volatile 配置节：`petStyle`（whale / claude）、`greetingStyle`（explore / claude）与 `greetingName`。旧配置默认保留鲸鱼与宿主问候；两项外观独立切换，不改变已有模块开关。设置页使用原配置传输即时写入，问候语不包含姓名，旧称呼字段仅保留配置兼容。
+
+Claude 宠物使用 36×24 的可点击盒，距输入面右端 9px。`claude-frames.ts` 按原版动作重建规则几何姿态与 20fps 索引，身体、侧面与手部阴影、眼睛、电脑分别由主题 token 上色，不转录录屏中的抗锯齿及压缩边缘。四条腿统一为 3px 宽，腿根随腹部变化，转身时保留有意的折角；电脑先于身体绘制，避免灰边盖住前肢。绘制时将统一的 23.5px 脚底基线对齐 24px 点击盒底部。`ClaudePet` 点击后眨眼、取出电脑、敲键盘再恢复站姿；播放时忽略连点，页面隐藏或卸载取消动画，减少动态效果时只眨眼 200ms。鲸鱼的原有图形与动作不变。问候语由 `compat/hero-greeting.ts` 在宿主 headline 中追加独立展示，隐藏原有子节点；星芒来自用户截图轮廓，样式为 24px 图标与 20px 常规字重文本。释放时移除展示与标记，保留宿主 React 节点。
+
+问候语仅按文档语言选择中英文，不读取或显示账户姓名。旧 `greetingName` 配置字段保留兼容，不再影响界面。
+
+语音控件保留在宿主 `conversation.input.activity` 的 React 父节点下，不再搬到权限按钮旁。`theme/composer.css` 沿用发送键的末行定位基准，将待机麦克风放到输入面右侧；麦克风始终位于发送键前方，空草稿也保留发送键，两者分别预留空间；双主按钮状态额外避让停止键。待机麦克风使用 `--ccd-text-strong` 的浅色纯黑／深色纯白图标，宿主「听写」悬浮提示保持隐藏，包括鼠标移开后的退出阶段，避免闪烁或遮挡宠物。采集时保留加号、权限与模型工具组及其原有布局，保持输入面原有高度，「正在聆听…」位于原先提示语的位置，同一行右侧为点状短波形和取消／确认圆角方钮，按钮中心与原输入行中心对齐；确认仍调用宿主的结束录音／转写动作。录音中用「正在聆听…」覆盖视觉文字，反馈阶段的宿主状态文字（包括「未识别到语音」）通过 CSS anchor 显示在同一提示语位置，右侧仅保留取消与重试／插入动作，保留原始状态语义及文本；其他阶段保留宿主状态与操作入口。`compat/composer-status-order.ts` 维护上下文圆环的无百分比可访问名称，并按宿主中英文文案标记隐藏 portal 中的「听写」提示，不移动语音节点。
+
+`compat/voice-waveform.ts` 读取宿主录音 SVG 的真实幅度样本，独立绘制 104×20 的波形展示层，不修改宿主音频采集或其 React 所属的 80 根线。可见区域约 16 个圆点，点距 6.5px、线宽 1.5px；每 100ms 从右侧加入一根新条，出生时确定高度，此后高度保持不变，以 65px/s 连续向左平移并在边缘裁切。静音为圆点，声音为圆头竖条。展示层与宿主 SVG 分离，避免进入宿主录音 effect 的线节点快照；宿主结构不匹配时保留原生波形，释放时撤下展示层并取消动画帧。
+
+`compat/running-status.ts` 通过独立的 `personalization.runningStyle` 提供原生鲸鱼与 Claude 输出中状态选项。Claude 样式保留宿主时钟及 React 节点，附加星芒、运行时长与等待／思考／工具／输出／审批阶段文字；仅阶段变化触发文字过渡，星芒持续收缩扩散，减少动态效果时静止。关闭或卸载后恢复原生状态。工具详情样式与高亮、复制适配同时覆盖运行中的单次调用与已完成分组，原生操作与详情节点保持原位。
+
+工具摘要展开／收起直接切换原生兄弟条目的显示状态，不添加高度动画或延迟隐藏，下方正文一次到位。分组同步保留未改变的成员标记，避免流式更新重启动画。
+
+`compat/plan-notices.ts` 仅隐藏聊天中已成功完成的计划开关确认行，按宿主 `data-state="ok"` 和完整固定文案识别；命令日志保留，错误、运行中状态和计划正文照常显示。观察器只检查插入的子树或发生更新的命令行，卸载时恢复显示。
+
+加号打开独立的图标菜单，包含添加文件或照片、斜杠命令、添加插件；文件和插件条目转发真实宿主入口。加号的宿主悬停提示隐藏，独立菜单不显示黑色解释说明。`compat/slash-menu-port.ts` 用宿主输入动作插入 `/`，使独立菜单中的斜杠入口与直接输入 `/` 一样显示命令和可用技能，不再限制为 command 来源。`compat/composer-command-menu.ts` 只为 command 来源附加纯文字 token 展示；`compat/command-menu-details.ts` 提供灰色「命令 / 技能」标题和仅限斜杠菜单的黑底中文悬停说明。斜杠菜单不显示图标，宿主仍负责完整候选、筛选、键盘选择和执行。技能直接使用宿主目录传入的 frontmatter description，保留原始语言，缺失时才显示技能名称与运行提示；关闭、滚动、切换会话或卸载时清理提示，`@` 文件引用保留原生候选与操作。`plan` 仍是宿主 leading-input 命令入口：选择后插入计划命令草稿，发送才执行，不是开关状态。底部模式入口只显示宿主实时计划状态，不从命令草稿或模型回复推断是否已退出。
+
+排队消息由 `theme/queue.css` 统一绘制：通过宿主稳定的 `data-queue-dock` 限定结构和局部类名后缀，跨构建沿用同一套样式。队列卡片与输入框等宽，使用主题圆角、分隔线和紧凑操作按钮；覆盖折叠标题、发送中状态、附件与原地编辑，保留宿主滚动、折叠、保存、删除和立即发送行为，不搬移 React 节点。
+
+### 定时任务页
+
+`compat/schedule-locales.ts` 统一提供定时任务页、内置模板与预填指令、详情和操作菜单的中英文文案，跟随文档 `lang`。语言切换原地更新插件持有的文字和标签，不重建工具栏、模板按钮或原生任务行；搜索值、页签和展开状态保留，已保存任务的标题与指令不翻译。详情的时间与字段标题同步切换，删除确认沿用原有明确确认流程。
+
+`compat/schedule-page.ts` 从宿主稳定的 `data-testid="task-manager-page"` 定位页面，按已核对的四个直属内容块添加可撤销标记；不搬移 React 节点，保留宿主的新建、搜索、状态筛选、任务列表和详情操作。`theme/schedule.css` 绘制「我的 / 模板」工具栏、秒表空状态与双列模板建议，窄窗口下改为单列。模板是插件内置的创建提示词建议，不是已创建的任务；点击后通过宿主按钮打开新会话，`compat/schedule-draft.ts` 等待空白会话的编辑器就绪后，通过宿主输入接口预填对应提示词并聚焦；用户可编辑后自行发送，不覆盖已有草稿或附件。发布说明模板采用每周汇总，未模拟宿主不支持的 PR 事件触发。关闭插件会移除新增节点、标记和事件监听，并恢复仍由插件持有的原始文案。`compat/schedule-detail.ts` 在捕获阶段接管任务卡片点击，不再打开宿主右侧详情栏，而是在页面内渲染整页详情（面包屑、标题、下次运行、历史记录、指令、重复频率）；任务按 `aria-describedby` 中的完整 ID 匹配目录，并给卡片补一行截断的指令正文。立即运行、启用开关与面包屑下拉暂未实现。
+
+Windows rc22 的 Files 使用原生 `FileNavigator`：适配为其独立页与预览树添加自有搜索工具栏，不把 resize separator 当页头。新版 Entry 的主操作位于行包装层，配件操作保持原样。预览自带树时不另开 Files；已有独立 Files 与预览并存时以预览内树为当前控件目标。树开合转发原生 toggle，关闭会卸载 navigator，搜索等待新树及过滤框挂载后聚焦。旧版 Files 的独立树与预览拼接布局保留。
+
+定时任务 rc22 以四状态筛选和嵌套 searchTools 结构识别，保留宿主原生详情、运行、暂停、编辑、手动创建、清理与删除确认；旧版继续使用插件全页详情和删除菜单。新版不经旧 `schedule.delete` / 带 sessionId 的 history 路径，暂停任务文案也不由旧详情改写成已结束。搜索框单独折叠，清理菜单保持可见，列表排在其下一行。
+
+Windows rc22 自定义页的 `data-plugin-body` 是受约束的滚动容器，外层 root 保持 flex；`data-plugin-bar` 内页头沿用原生 header-scroll 的 sticky/compact 与测量驱动，不能再套旧 root grid 的 `display:contents`，否则克隆测量、inline 定位与滚动高度会失配。新版详情/更多的返回行仍保留 47px 顶距。对应浏览器回归加载原生 CSS、MainPanel 包装及真实 header-scroll 函数，并用 mouseWheel 验收末项可达。
+
+macOS rc22 原生 layout 为非 drawer 侧栏新增高优先级的浅深渐变规则。sidebar 的平面底色覆盖须带准确的非 drawer frame 边界以胜过它，drawer 自己的位移/遮罩分支保持宿主所有；Windows 原生 sidebar root 与标题栏仍读取同一主题 surface。实际颜色回归覆盖两平台、浅深、默认/自定义、drawer，并检验实际 computed background 及背景图层。

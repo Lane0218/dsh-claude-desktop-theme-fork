@@ -1,0 +1,687 @@
+/*
+ * Host popup surfaces — menus and panels (DESIGN.md §6.7).
+ *
+ * The document draws one popup for the whole interface: a 12px card with a 1px
+ * outline, the three-layer hairline shadow and the card fill, and one flat 24px
+ * cell per row — the host's own 13px label on a 20px line with 2px above and
+ * below, a 6px corner, and no leading icon seat, because a row is text plus a
+ * trailing mark.
+ *
+ * Every host popup is built from two shared pieces, so this sheet is two
+ * families of rules rather than one per menu:
+ *
+ * - **The card** is `MenuSurface` (`ui-primitives`), which tags itself
+ *   `data-menu-material`; that node is the same whichever primitive renders
+ *   inside it — a `Menu` list, a submenu, the signed-in account card, or the
+ *   Composer's command palette. Its own skin is a translucent material: a 16px
+ *   `--dsw-radius-lg` corner, a 0.5px elevation stroke and the
+ *   `--dsw-elevation-prominent` shadow on the card, plus a `.material` child
+ *   covering its padding box with `--dsw-menu-surface-fill` (a 58%-alpha
+ *   near-white) under a `blur(40px) saturate(150%)` backdrop.
+ *
+ * - **The rows** belong to whichever primitive renders them. `ui-primitives`'
+ *   `Menu` renders `button[role="menuitem"]` — `Menu.js` `MenuItemButton`: an
+ *   optional `.itemIcon` seat, the label and an optional trailing shortcut —
+ *   and the Composer's command palette renders `button[role="option"]` inside a
+ *   `[role="listbox"]` viewport whose classes are a frontend asset hash
+ *   `compat/host-dom.ts` does not pin, so those rows are reached through ARIA
+ *   and structure instead of a class name.
+ *
+ * Until this sheet existed the document's chrome was written per menu: the two
+ * hero chips' pickers in `composer.css`, the account card in
+ * `features/sidebar/account-menu.css`. The workspace `⋯`, session `⋯`,
+ * view-options and permission menus — which open from the sidebar and from the
+ * Composer's own status bar — therefore still drew the host's translucent 16px
+ * material with 34px cells and a leading glyph, next to hero pickers that drew
+ * this one. The rules below are now the single place that draws a host popup;
+ * the sheets that used to carry a copy keep only what is genuinely theirs.
+ *
+ * Deliberately outside those rules:
+ *
+ * - the **account menu** (`compat/account-menu.ts` tags the card
+ *   `data-ccd-account-menu`) keeps its own row rhythm and its leading glyphs:
+ *   the reference for that card draws them
+ *   (`features/sidebar/account-menu.css`), and it is a wide account card rather
+ *   than a list of choices. Its *card* is still the document's popup and takes
+ *   the rule below; only the row rules step around it.
+ * - the plugin's own **model and effort cards** (`features/model-controls`) are
+ *   not `MenuSurface` nodes at all — they already draw this chrome from their
+ *   own sheets and answer to their own tests.
+ * - the **permission card** (`compat/permission-menu.ts` tags the card
+ *   `data-ccd-permission-menu` and each row it drew a second line for) keeps the
+ *   card rule and steps out of the row rule: its rows are the family's one
+ *   two-line cell, and the block at the end of this sheet is that cell. It is
+ *   here rather than in a sheet of its own because the card, the row group and
+ *   the trailing check are all this family's, and only the line heights differ.
+ *
+ * Host classes are pinned in src/client/compat/host-dom.ts.
+ */
+
+/* The card.
+ *
+ * Three of the material's four values move here: the corner, the outline and
+ * the shadow. The fourth, the fill, moves through the token the `.material`
+ * layer reads rather than by naming that layer's class — one less hash to pin,
+ * and the layer keeps its own `inset: 0`, so its arc still follows the card.
+ *
+ * The card states `--ccd-card` beside the token for the one pixel the material
+ * cannot cover: the material is inset by the card's border, so without a
+ * background of its own the corner arc would leave a sliver of the page showing
+ * through. `--dsw-menu-backdrop-filter` is withdrawn with the fill: the palette
+ * fill is opaque, so the 40px blur would only cost compositing.
+ *
+ * Everything else the surface decides for itself — its 4px padding, the
+ * scrollable viewport, the footer's pinned row, the card's own
+ * `--dsh-scrollbar-*` rebinding — stays the host's. (That rebinding still
+ * stands; `theme/scrollbars.css` is the one sheet that moves the two thumb
+ * colours it resolves to.) */
+html[data-dsh-ccd-style="true"] [data-menu-material] {
+  box-sizing: border-box;
+  border: 1px solid var(--ccd-border);
+  border-radius: var(--ccd-radius-panel);
+  background: var(--ccd-card);
+  box-shadow: var(--ccd-effort-shadow);
+  --dsw-menu-surface-fill: var(--ccd-card);
+  --dsw-menu-backdrop-filter: none;
+}
+
+/* The opaque theme surface already supplies the fill and outer shadow. */
+html[data-dsh-ccd-style="true"][data-platform="darwin"] [data-menu-backing] {
+  display: none;
+}
+
+/* Input-trigger menus keep their native anchor and keyboard selection. The
+ * description is a separate span in MenuView; labels and aliases stay intact. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-trigger-menu] {
+  width: min(280px, 100%);
+  right: auto;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material][data-trigger-menu] [role="option"] > [class$="_itemDescription"] {
+  display: none;
+}
+
+/* A compact menu gives the name and alias the space descriptions used to own. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-trigger-menu] [role="option"] > [class$="_itemName"],
+html[data-dsh-ccd-style="true"] [data-menu-material][data-trigger-menu] [role="option"] > [class$="_itemAlias"] {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: none;
+}
+
+/* One row, one cell.
+ *
+ * The host's cell is 34px — a 13px label on a 20px line under a 34px minimum
+ * with 6px of block padding — and its dense variant is 30px; the reference
+ * measures one row as 48 device px at @2x, the same line in a 24px box. Cutting
+ * the minimum and the block padding to that row's own 2px is the whole change:
+ * the 8px inline padding, the 6px gap, the 13px/20px label and the 14px
+ * trailing mark are still the host's, so the label's x and measure do not move.
+ *
+ * `min-height` and `padding-block` are one decision — 2px around that 20px line
+ * is exactly the 24px the reference draws — and they only add up under
+ * `border-box`, which the renderer's own button default supplies and nothing the
+ * host's cell declares. Stating it keeps the row at 24px whatever the page does
+ * with padding instead of resting the arithmetic on a default.
+ *
+ * The corner follows the height: the reference's highlight fits a 12-device-px
+ * curve at @2x, the same 6px the transcript's table and code cards carry. The
+ * host's row radius is 12px, exactly half of a 24px row, so every hover and
+ * focus fill would round into a pill instead of the reference's soft rectangle.
+ *
+ * The command palette's rows are `[role="option"]`, not `[role="menuitem"]`,
+ * and they answer to the same cell: its row is the same 34px box with the same
+ * 12px corner, and one row per command is what the reference draws there too.
+ *
+ * The account card is named out: its rows are its reference's own
+ * (`features/sidebar/account-menu.css`, 28px rows with their leading glyphs), and
+ * that sheet mounts after this one, so an exclusion is a decision rather than a
+ * race. */
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="menuitem"],
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="option"] {
+  box-sizing: border-box;
+  min-height: 24px;
+  padding-block: 2px;
+  border-radius: var(--ccd-table-radius);
+}
+
+/* No leading icon seat.
+ *
+ * A row is a label and a trailing mark, so the seat is removed rather than
+ * reserved: out of the flex line it leaves neither itself nor the row's 6px gap
+ * behind, and the label falls back to the row's own 8px start padding inside the
+ * card's 4px — 12px from the card's left edge, the same x on every row of every
+ * popup, and the same x the hero pickers' rows already had.
+ *
+ * Both seats are named by the fact that makes them seats rather than by a class
+ * this sheet cannot pin: `ui-primitives`' `Menu.js` gives its icon span the
+ * `.itemIcon` class (`_4ub78_` is in `compat/host-dom.ts`), while the command
+ * palette renders its icon as the row's first child span with
+ * `aria-hidden="true"` — a decorative seat, and the palette's own class prefix
+ * is not pinned anywhere. */
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="menuitem"] > ._itemIcon_4ub78_148,
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="option"] > span[aria-hidden="true"]:first-child {
+  display: none;
+}
+
+/* Text-only input menus have no leading icon seat. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-trigger-menu] [role="option"] > span[aria-hidden="true"]:first-child {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: inherit;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material][data-trigger-menu] [role="option"] > span[aria-hidden="true"]:first-child svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Keep native candidates and keyboard selection, with one token per row and
+ * separate muted headings for commands and skills. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-command-menu] {
+  width: min(240px, calc(100vw - 24px));
+  padding: 4px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-command-menu] [role="listbox"] > [role="presentation"]:not([data-ccd-command-heading]),
+html[data-dsh-ccd-style="true"] [data-ccd-command-menu] [role="option"][id^="dsh-slash-option-command-"] > :not([data-ccd-command-token]) {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-command-menu] [role="option"] {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-command-token] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ccd-text-strong);
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-add-menu] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 178px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  padding: 4px;
+  color: var(--ccd-text-strong);
+  font-family: inherit;
+  outline: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-add-menu] [role="menuitem"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-add-menu] svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-command-menu] [data-ccd-command-heading] {
+  padding: 2px 8px;
+  color: var(--ccd-text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-command-tooltip] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--ccd-command-tooltip-fill);
+  color: var(--ccd-command-tooltip-ink);
+  box-shadow: var(--ccd-effort-shadow);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+/* One fill for the row's states.
+ *
+ * The pointer gets the fill every other control in this palette gets — one
+ * hover step for the whole interface rather than the host's 6%-bluish
+ * `--dsw-alias-interactive-bg-hover` inside a popup — and the keyboard walk
+ * takes the same fill, because the host already reads focus that way and the
+ * ring that would have told the two apart is not drawn in this family (below).
+ * The destructive row is the one exception: it takes a red fill with white ink
+ * (below), in every state, so the danger action reads apart from the rest of
+ * the card. Selection is not a fill in this document — it is the accent check
+ * the trailing seat draws (`theme/tokens.css`) and that the host's `.selected`
+ * class already leaves transparent.
+ *
+ * The command palette's active row is its keyboard cursor (the listbox keeps DOM
+ * focus and publishes `aria-activedescendant`), so it takes the fill by
+ * `aria-selected` rather than by a pseudo-class. */
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="menuitem"]:hover:not(:disabled),
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="menuitem"]:focus-visible:not(:disabled),
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="option"]:hover,
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="option"][aria-selected="true"] {
+  background: var(--ccd-hover);
+}
+
+/* The host's destructive row (`Menu.module.css` `.danger`, the `_4ub78_` build
+ * the rest of this sheet names) rests in the host's red ink. Hover and the
+ * keyboard walk fill it with the red and white ink, label and shortcut included.
+ * It sits after the hover rule above and is more specific, so the host's own
+ * danger hover tint loses to it. */
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="menuitem"]._danger_4ub78_226:hover:not(:disabled),
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="menuitem"]._danger_4ub78_226:focus-visible:not(:disabled) {
+  background: var(--ccd-menu-danger);
+  color: var(--ccd-menu-danger-ink);
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="menuitem"]._danger_4ub78_226:hover:not(:disabled) span,
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="menuitem"]._danger_4ub78_226:focus-visible:not(:disabled) span {
+  color: inherit;
+}
+
+/* Filling the row is the whole state: no emphasis ring on a popup row.
+ *
+ * §七's ring was drawn here first and taken out again. It is a box on a 24px
+ * cell, so it cannot sit still: at the first and the last row the scrolling
+ * viewport cuts it open (the rows sit on its edge — measured in the running
+ * interface, the top stroke of `重命名` and the bottom stroke of `删除工作区`
+ * both lost their line), and on any row between them it paints 2px into the
+ * neighbour's cell. The host's own keyboard walk answers focus with the fill
+ * for the same reason (`Menu.module.css` `.item:focus-visible` states
+ * `outline: none`), so the family keeps one indication and the rule below is
+ * the statement of that decision rather than a leftover of the host's. The
+ * account card is left out here as everywhere else in this sheet. */
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="menuitem"]:focus-visible,
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="option"][aria-selected="true"],
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [data-ccd-menu-search] {
+  outline: none;
+}
+
+/* The card's non-option rows — group headings, and the palette's section and
+ * group titles — are cells of the same rhythm, not blocks with a size of their
+ * own: one 20px line with 2px above and below, in the control-label size (12px;
+ * the document's scale has no 11px step) and the secondary ink. The host draws
+ * them at 11px/15-16px with 5-6px of block padding and the tertiary ink, which
+ * makes a heading the tallest thing in a card of 24px rows.
+ *
+ * They are reached structurally: both primitives render those titles as direct
+ * `role="presentation"` children of the scrolling container — the `Menu` list's
+ * `.viewport` and the palette's own `[role="listbox"]` viewport — while rows sit
+ * one wrapper deeper and separators carry `role="separator"`. */
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) ._viewport_4ub78_19 > [role="presentation"],
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="listbox"] > [role="presentation"] {
+  box-sizing: border-box;
+  padding: 2px 8px;
+  color: var(--ccd-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+/* The card's two internal hairlines — a data separator and the pinned footer's
+ * top edge — take the palette's soft line rather than the host's
+ * `--dsw-alias-border-l2`, so a line inside a card is one step under the card's
+ * own outline. Sizes stay the host's: a 0.5px hairline and its margins. */
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) [role="separator"] {
+  background: var(--ccd-border-soft);
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material]:not([data-ccd-account-menu]) ._footer_4ub78_62 {
+  border-top-color: var(--ccd-border-soft);
+}
+
+/* The full-window reference places a ~280px card beside a 770px Composer.
+ * Keep that width when Chinese summaries are shorter than the English copy. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-agent-menu] {
+  width: 280px;
+  min-width: 0;
+  max-width: calc(100vw - 24px);
+}
+
+/* Permission copy sets its own width, with the reference's compact floor. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] {
+  --ccd-choice-label-size: 14px;
+  width: max-content;
+  min-width: 202px;
+  max-width: calc(100vw - 24px);
+}
+
+/* Permission and Agent preset cards share the two-line cell.
+ *
+ * Every other card in this family draws a row as text plus a trailing mark, and
+ * DSH's permission card draws its four presets that way too — `仅可查看` and its
+ * neighbours, one 20px line each. The reference draws the same four rows a line
+ * taller: the mode's name over a sentence saying what the mode does, with the
+ * one flagged preset carrying a badge beside its name. `compat/permission-menu.ts`
+ * recognises the rows (by the name each one draws — the primitive gives a row no
+ * identity of its own), writes the second line and tags the row and the card; the
+ * rules below draw what it tagged, and nothing else in this sheet has to move.
+ *
+ * The cell is measured from that reference at @2x, the way §三 measures everything
+ * else: rows repeat every 80.5 device px — 40px — with the name at 14px on a 20px
+ * line and the sentence at 12px on a 16px line flush under it, on the family's own
+ * 2px of block padding (20 + 16 + 4 = the measured 40). 14px is the document's body
+ * step, one above the 13px control label a single-line menu row draws: a row that
+ * carries a sentence reads as a paragraph, not as a list item.
+ *
+ * Two things are stated against the family rule rather than left to it. The host's
+ * flex line becomes the grid below, which is what puts the name and the sentence on
+ * two tracks instead of side by side; and `min-height` and `padding-block` are given
+ * again, because the family rule sets both — at a specificity this selector beats
+ * (0-5-1 to its 0-4-1), so no sheet order is relied on, and a two-line row that
+ * inherited the 24px floor and the 2px padding would be clipped rather than drawn.
+ * The host's 6px `gap` becomes the grid's column gap for the same reason it was a
+ * flex gap: it is the distance to the trailing mark. `row-gap` is stated as 0 to
+ * keep it off the two lines, which sit flush.
+ *
+ * The label and the check are placed by hand, because a grid without explicit
+ * areas fills row-major: the name would take the first cell, the sentence the
+ * second — beside it — and the check the third line. The icon seat needs no
+ * placement at all: the family rule takes it out of the line with `display: none`,
+ * and a `display: none` child generates no box to place. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-agent-menu] [role="menuitem"][data-ccd-agent-mode],
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] [role="menuitem"][data-ccd-permission-mode] {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px 10px;
+  align-items: center;
+  row-gap: 0;
+  min-height: 40px;
+  padding-block: 2px;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-agent-menu] [role="menuitem"][data-ccd-agent-mode] > ._itemLabel_4ub78_190,
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] [role="menuitem"][data-ccd-permission-mode] > ._itemLabel_4ub78_190 {
+  grid-area: 1 / 1;
+  color: var(--ccd-text-strong);
+  font-size: var(--ccd-choice-label-size, 12px);
+  font-weight: 400;
+  line-height: 20px;
+}
+
+/* The second line, in the document's 弱化墨: the reference measures its sentence at
+ * 137/255, which is this palette's muted step, a clear one below the name above it.
+ * It is one line and it is not narrowed — `nowrap` is what lets the card size itself
+ * to the longest sentence (its own measure lands just inside the primitive's 360px
+ * ceiling), which is exactly what the reference does and what this family's rows,
+ * being single lines of a name, never have to decide. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-agent-menu] [data-ccd-agent-desc],
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] [data-ccd-permission-desc] {
+  grid-area: 2 / 1 / 3 / -1;
+  overflow: hidden;
+  color: var(--ccd-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The trailing mark is the host's own selected check — an accent `✓` by
+ * `theme/tokens.css`, never a fill — and it aligns with the name before the shortcut. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-agent-menu] [role="menuitem"][data-ccd-agent-mode] > ._check_4ub78_179,
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] [role="menuitem"][data-ccd-permission-mode] > ._check_4ub78_179 {
+  grid-area: 1 / 2;
+  align-self: center;
+}
+
+/* The one badge, as the reference draws it: a 16px pill beside the name, not the
+ * 8px superscript the host sets. The host's own `.badge` is `font-size: 8px` at
+ * weight 600 with `letter-spacing: .2px`, baseline-aligned into the name's line
+ * (`align-self: flex-start` under a -1px pull) — every one of those is a
+ * superscript's, and the reference's badge is a tag with a fill and a corner.
+ *
+ * The fill is the palette's 分段轨道 step, which is the reference's measured
+ * 243/255, and it is also the one fill that survives this row's hover: the pointer
+ * fills the row `--ccd-hover` (240/255 light, 49/255 dark), and the track step
+ * reads lighter than it in the light theme and darker in the dark one, so the pill
+ * is never the fill it sits on. The 4px corner is the smallest in the ladder and a
+ * shade rounder than the reference's measured 3px; 6px — the chip and card step —
+ * would round a 16px box towards a capsule.
+ *
+ * The gap the host leaves between a name and its badge (4px) is widened to the
+ * reference's 6px here, and only here: the pair is one control, and 4px reads
+ * cramped beside a 16px pill. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] [role="menuitem"][data-ccd-permission-mode] .wXeviG_badge {
+  align-self: center;
+  margin-top: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--ccd-track);
+  color: var(--ccd-text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 16px;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] [role="menuitem"][data-ccd-permission-mode] .wXeviG_optionLabel {
+  column-gap: 6px;
+}
+
+/* The group's name, above the rows.
+ *
+ * It is the host's own heading row — a `role="presentation"` div inside the row
+ * group, which is what `Menu` renders for a label entry, written there by
+ * `compat/permission-menu.ts` — so the family rule above already gives it the
+ * 12px control-label step, the secondary ink and the 8px start padding every other
+ * cell has. The one thing it does not have is this card's own breathing room: the
+ * reference measures ~29px between the card's top edge and the first row, against
+ * the 24px a cell of the family's rhythm occupies, and the 6px above it is that
+ * difference. The name is a step lighter than the rows' names, which is what a
+ * heading above a card of choices should be. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-agent-menu] ._viewport_4ub78_19 > [data-ccd-agent-heading],
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] ._viewport_4ub78_19 > [data-ccd-permission-heading] {
+  padding-block: 6px 2px;
+  color: var(--ccd-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+/* Bare-digit shortcuts align with the name, after the selected check. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-agent-menu] [data-ccd-agent-shortcut],
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] [data-ccd-permission-shortcut] {
+  grid-area: 1 / 3;
+  color: var(--ccd-text-muted);
+  font: 400 12px/20px var(--ccd-font-ui);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Keep DSH's complete, localized Agent preset description in its native node. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-agent-menu] [data-ccd-agent-mode] > ._itemLabel_4ub78_190 > span > :not(:first-child) {
+  white-space: normal;
+}
+
+/* Preset names have their own host font rule; inherit the shared label metrics. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-agent-menu] [data-ccd-agent-mode] > ._itemLabel_4ub78_190 > span > :first-child {
+  color: inherit;
+  font: inherit;
+}
+
+/* Workspace picker: search line, branch row and branch side card.
+ *
+ * `compat/workspace-menu.ts` and `compat/workspace-branch.ts` add these nodes to
+ * the host's picker card; rows reuse the classes of a row the host rendered in
+ * the same card, so the family's 24px cell, fill and check above apply as is.
+ * The search line is the model card's bare line: no box, one soft hairline
+ * under it, bled over the card's 4px padding and handing that 4px back so the
+ * caret lands on the row labels' x; like the rows it draws no focus ring (the
+ * no-ring rule above names it), the caret is its focus. */
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-menu-search] {
+  box-sizing: border-box;
+  display: block;
+  width: calc(100% + 8px);
+  height: 28px;
+  margin: -4px -4px 4px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--ccd-border-soft);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-menu-search]::placeholder {
+  color: var(--ccd-text-placeholder);
+  opacity: 1;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-filtered] {
+  display: none !important;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-workspace-extra][hidden] {
+  display: none !important;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-menu-note]:not([hidden]) {
+  box-sizing: border-box;
+  padding: 2px 8px;
+  color: var(--ccd-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-branch-row][aria-disabled="true"] {
+  color: var(--ccd-text-secondary);
+}
+
+/* The branch row: label, the current branch in the secondary ink, a chevron. */
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-branch-row] {
+  width: 100%;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-branch-row] > [data-ccd-branch-value] {
+  min-width: 0;
+  max-width: 160px;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--ccd-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-branch-row] > [data-ccd-menu-chevron] {
+  display: inline-flex;
+  flex: none;
+  color: var(--ccd-text-secondary);
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-branch-row][aria-disabled="true"] > span,
+html[data-dsh-ccd-style="true"] [data-menu-material] [data-ccd-branch-row][aria-disabled="true"] svg {
+  color: var(--ccd-text-placeholder);
+}
+
+/* The side card is a manual popover nested in the host card: the UA's centred
+ * popover box is withdrawn and the module writes `left`/`top`. Only the list
+ * scrolls, so the search line stays on the card. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-branch-menu] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: min(360px, calc(100vh - 24px));
+  overflow: hidden;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-branch-menu] > [data-ccd-branch-list] {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The read-only listing may report that the branch list was truncated. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-branch-menu] > [data-ccd-branch-summary] {
+  max-width: 280px;
+  margin-top: 4px;
+  border-top: 1px solid var(--ccd-border-soft);
+  padding-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+/* Plan is a collaboration state; the host still owns the permission selection. */
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu][data-ccd-plan-active] [data-ccd-permission-mode] > ._check_4ub78_179 {
+  visibility: hidden;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] [data-ccd-permission-mode="plan"][aria-pressed="true"]::after {
+  content: '✓';
+  grid-area: 1 / 2;
+  color: var(--ccd-accent);
+  text-align: center;
+}
+
+html[data-dsh-ccd-style="true"] .wXeviG_trigger[data-ccd-plan-label]:has(.wXeviG_triggerIcon) > .wXeviG_triggerLabel,
+html[data-dsh-ccd-style="true"] [data-ccd-plan-label] .wXeviG_badge {
+  display: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-plan-label]::before {
+  content: attr(data-ccd-plan-label);
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] [data-ccd-plan-error] {
+  padding: 4px 8px;
+  color: var(--ccd-text-muted);
+  font-size: 12px;
+}
+
+html[data-dsh-ccd-style="true"] [data-menu-material][data-ccd-permission-menu] [data-ccd-permission-mode][hidden] {
+  display: none;
+}
+
+/* The unified mode trigger already shows Plan; withdraw the host's second seat. */
+html[data-dsh-ccd-style="true"] [data-conversation-session]:has(.wXeviG_trigger[data-ccd-plan-label]) button:is([aria-label="计划模式已开启，按下关闭"], [aria-label="Plan mode on, press to turn off"]) {
+  display: none;
+}
+
+/* Successful mode switches are already reflected by the Composer trigger. */
+html[data-dsh-ccd-style="true"] [data-chat-flow-kind="command"][data-ccd-plan-notice] {
+  display: none;
+}
+
+/* The add launcher keeps its accessible label, without a floating explanation. */
+html[data-dsh-ccd-style="true"] [data-ccd-add-tooltip] {
+  display: none;
+}

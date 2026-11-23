@@ -1,0 +1,405 @@
+import { HERO_RIPPLE_DURATION } from '../../contracts/hero-canvas.ts';
+import type { HeroRippleImpulse } from '../../contracts/hero-canvas.ts';
+
+const GLYPHS = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const TAU = Math.PI * 2;
+const GLYPH_WIDTH = 8;
+const GLYPH_HEIGHT = 15;
+const clamp = (value: number) => Math.max(0, Math.min(1, value));
+const smooth = (from: number, to: number, value: number) => {
+  const t = clamp((value - from) / (to - from));
+  return t * t * (3 - 2 * t);
+};
+const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+/** A stable character/grain seed, independent of both time and user content. */
+function hash(x: number, y: number): number {
+  let value = Math.imul(x, 374761393) ^ Math.imul(y, 668265263);
+  value = Math.imul(value ^ (value >>> 13), 1274126177);
+  return ((value ^ (value >>> 16)) >>> 0) / 4294967296;
+}
+/** Continuous signed noise; moving through it bends the wavefronts smoothly. */
+function noise(x: number, y: number): number {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const sx = fx * fx * fx * (fx * (fx * 6 - 15) + 10);
+  const sy = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
+  return mix(mix(hash(ix, iy), hash(ix + 1, iy), sx),
+    mix(hash(ix, iy + 1), hash(ix + 1, iy + 1), sx), sy) * 2 - 1;
+}
+
+interface WaveFrame {
+  readonly time: number;
+  readonly scale: number;
+  readonly offsetX: number;
+  readonly offsetY: number;
+  readonly phase: number;
+  readonly strength: number;
+}
+function frameAt(elapsed: number, width: number, height: number): WaveFrame {
+  // Keep the field moving continuously: no dark interval or cycle reset.
+  const time = elapsed / 1000;
+  return {
+    time: time * .45,
+    scale: Math.max(320, Math.min(width, height, 900)),
+    offsetX: hash(0, 17) * 13,
+    offsetY: hash(0, 43) * 13,
+    phase: hash(0, 71) * TAU,
+    strength: .9 + .1 * Math.sin(time * TAU / 12.8),
+  };
+}
+
+/** Multiple warped, interfering fronts, with broken crests and soft patches. */
+function fieldAt(x: number, y: number, frame: WaveFrame): number {
+  const { time: t, scale, phase, offsetX, offsetY, strength } = frame;
+  if (strength === 0) return 0;
+  const nx = x / scale, ny = y / scale;
+  const u = nx + .27 * noise(nx * 2 + offsetX + t * .08, ny * 2 - t * .11)
+    + .065 * Math.sin(ny * 5.1 + t * .43 + phase);
+  const v = ny + .24 * noise(nx * 2.3 + 23 - t * .09, ny * 2 + offsetY + t * .07)
+    + .055 * Math.sin(nx * 4.7 - t * .37);
+  const distanceA = Math.hypot((u - .17) * .84, v - .62);
+  const distanceB = Math.hypot(u - 1.1, (v + .18) * .78);
+  const frontA = Math.sin(distanceA * 9.6 - t * 2.05 + phase);
+  const frontB = Math.sin(distanceB * 8.2 - t * 1.53 - phase * .7);
+  const cross = Math.sin(u * 3.5 + v * 2.6 + t * .71 + phase);
+  const crest = smooth(.66, .98, frontA * .65 + frontB * .43 + cross * .2);
+  // Crests this thin, cut along their length, leave only short dashes.
+  const dashes = smooth(.12, .42, noise(u * 8.5 + offsetX - t * .12, v * 8.5 + offsetY + t * .08));
+  return strength * crest * .5 * dashes;
+}
+
+/** Between neighbouring fronts, and the leading front to the last one. */
+const FRONT_SPACING = .2, FRONT_SPAN = FRONT_SPACING * 2;
+/**
+ * A heart's outline seen from a point low inside it, as a cosine series in the
+ * angle from straight up. So few terms keep the cleft and tip soft, and the
+ * click's fronts run furthest into the lobes. Dividing by it makes hearts.
+ */
+const HEART_OUTLINE = [0.808, 0.237, -0.047, -0.187, -0.048, -0.046, -0.005, -0.035];
+/** The extremes of the outline, for culling. */
+const HEART_MIN = 0.52, HEART_MAX = 1.17;
+/** How much wider a heart runs than its outline, so the lobes sit plump. */
+const HEART_WIDEN = 1.18;
+
+function heartReach(angle: number): number {
+  let reach = 0;
+  for (let i = 0; i < HEART_OUTLINE.length; i++) reach += HEART_OUTLINE[i]! * Math.cos(i * angle);
+  return reach;
+}
+
+interface ClickFrame {
+  readonly x: number;
+  readonly y: number;
+  readonly scale: number;
+  readonly age: number;
+  readonly seed: number;
+  readonly tilt: number;
+  /** 0 is a round front, 1 a heart. */
+  readonly shape: number;
+  readonly loose: number;
+  readonly warped: number;
+  readonly radius: number;
+  readonly thickness: number;
+  readonly fade: number;
+  readonly contact: number;
+  readonly innerSquared: number;
+  readonly outerSquared: number;
+}
+
+function clicksAt(elapsed: number, width: number, height: number,
+  impulses: readonly HeroRippleImpulse[]): ClickFrame[] {
+  const scale = Math.max(320, Math.min(width, height, 900));
+  const frames: ClickFrame[] = [];
+  for (const impulse of impulses) {
+    const age = (elapsed - impulse.startedAt) / HERO_RIPPLE_DURATION;
+    if (age < 0 || age >= 1) continue;
+    // Three separate bands follow each other out of the click, each broadening
+    // as it travels. Some clicks fold into a plump heart, the rest stay a
+    // lumpy circle: the seed decides, so a click keeps its shape as it spreads.
+    const growth = smooth(0, .1, age), radius = age * 1.25, thickness = .028 + age * .035;
+    const contact = (1 - smooth(.025, .12, age)) * .24;
+    const seed = impulse.x * 7 + impulse.y * 11 + impulse.startedAt / 10000;
+    const heart = hash(Math.floor(seed * 997), 31) < .5;
+    const shape = heart ? growth : 0;
+    // Fronts wobble in proportion to their radius, so a small one stays clean
+    // and a circle wanders more than a heart. The warp only joins further out.
+    const loose = growth * (heart ? .55 : 1), warped = growth * smooth(.05, .5, radius);
+    // Wobble stretches a front by at most 1/.85 and the warp moves a point by sqrt(2)*.07.
+    // Four Gaussian widths include all visible crests (tail < 0.00000012).
+    const front = radius * loose * .18 + thickness * 4, warp = warped * Math.SQRT2 * .07;
+    const least = mix(1, HEART_MIN, shape), most = mix(1, HEART_MAX * HEART_WIDEN, shape);
+    const inner = contact > 0 ? 0 : Math.max(0, (radius - FRONT_SPAN - front) * least - warp);
+    const outer = Math.max((radius + front) * most + warp, contact > 0 ? .4 : 0);
+    frames.push({ x: impulse.x * width, y: impulse.y * height, scale, age, seed,
+      tilt: .08 * Math.sin(seed * 5.3), shape, loose, warped, radius, thickness, contact,
+      fade: smooth(0, .045, age) * (1 - smooth(.4, 1, age)),
+      innerSquared: inner * inner, outerSquared: outer * outer });
+  }
+  return frames;
+}
+
+/** Evaluate only the band of fronts that can contain a visible crest. */
+function clickLightAt(x: number, y: number, frame: ClickFrame): number {
+  const { scale, age, seed, tilt, shape, loose, warped, radius, thickness, fade, contact } = frame;
+  const dx = (x - frame.x) / scale, dy = (y - frame.y) / scale;
+  const squared = dx * dx + dy * dy;
+  if (squared < frame.innerSquared || squared > frame.outerSquared) return 0;
+  const u = dx + warped * .07 * noise(dx * 3.2 + seed + age * .5, dy * 3.2 - age * .4);
+  const v = dy + warped * .07 * noise(dx * 3.1 + 23 - age * .5, dy * 3.1 + seed);
+  const angle = Math.atan2(v, u);
+  const across = u / mix(1, HEART_WIDEN, shape);
+  const distance = Math.hypot(across, v) / mix(1, heartReach(Math.atan2(across, -v) + tilt), shape)
+    * (1 + loose * (.1 * Math.sin(angle * 2 + seed * 7 + age * 2)
+      + .05 * Math.sin(angle * 3 - seed * 5 - age * 3)));
+  let crests = 0;
+  for (let i = 0; i < 3; i++) {
+    const front = (distance - radius + i * FRONT_SPACING) / thickness;
+    if (Math.abs(front) <= 4) crests += Math.exp(-front * front) * (1 - i * .23);
+  }
+  // Most points between the crests need neither patch noise nor exponentials.
+  const patches = crests > 0 ? .08 + .92 * smooth(-.3, .65,
+    noise(u * 5 + seed + age * .3, v * 5 - age * .2)) : 0;
+  const point = contact > 0 ? Math.exp(-(u * u + v * v) / .009) * contact : 0;
+  return (crests * patches * .72 + point) * fade;
+}
+
+/**
+ * How fully click light replaces the field. It closes at the crest's faintest
+ * edge, so a fading wave keeps its ink rather than sliding towards the grey.
+ */
+const coverOf = (clicked: number) => smooth(.0005, .006, clicked);
+
+function characterAt(x: number, y: number, illumination: number,
+  elapsed: number, textureFade = 1): { alpha: number; glyph: string } {
+  const grain = hash(Math.floor(x / GLYPH_WIDTH), Math.floor(y / GLYPH_HEIGHT));
+  // Each cell ticks independently, so the grid shimmers without flashing in unison.
+  const tick = Math.floor(elapsed / (300 + grain * 400) + grain * 17);
+  const character = hash(Math.floor(x / GLYPH_WIDTH) + tick * 1013, Math.floor(y / GLYPH_HEIGHT));
+  return {
+    // Lift the moving light while keeping the quiet character texture subdued.
+    alpha: Math.min(.72, (.012 + grain * .013) * textureFade + illumination * 1.65 * (.45 + .55 * grain)),
+    glyph: GLYPHS[Math.floor(character * GLYPHS.length)]!,
+  };
+}
+
+/** One cell's independently changing character and moving light, before edge fade. */
+export function rippleCell(x: number, y: number, elapsed: number,
+  width: number, height: number, impulses: readonly HeroRippleImpulse[] = []): { alpha: number; glyph: string } {
+  let clicked = 0;
+  for (const frame of clicksAt(elapsed, width, height, impulses)) clicked += clickLightAt(x, y, frame);
+  return characterAt(x, y, fieldAt(x, y, frameAt(elapsed, width, height)) * (1 - coverOf(clicked)) + clicked, elapsed);
+}
+
+/**
+ * The ink and the sampling mesh, kept between frames.
+ *
+ * Both are facts about the canvas's box and colour scheme, and both are read
+ * with layout-forcing calls (`getComputedStyle`, `defaultView`). The field is
+ * redrawn up to 60 times a second for as long as the page is up, so resolving
+ * them per frame makes the background's cost scale with the display's refresh
+ * rate for no visual difference. The mesh is keyed on the exact pixel size the
+ * canvas was last drawn at; the ink on the document's colour scheme.
+ */
+interface RippleSurface {
+  readonly bitmapWidth: number;
+  readonly bitmapHeight: number;
+  readonly width: number;
+  readonly height: number;
+  readonly ratio: number;
+  readonly step: number;
+  readonly columns: number;
+  readonly rows: number;
+  /** Reused between frames: the interpolation reads it, nothing retains it. */
+  readonly light: Float32Array;
+  readonly clickLight: Float32Array;
+  readonly cells: readonly GlyphCell[];
+  readonly scheme: string;
+  atlas?: HTMLCanvasElement;
+  layers?: {
+    glyphs: HTMLCanvasElement;
+    mask: HTMLCanvasElement;
+    context: CanvasRenderingContext2D;
+    maskContext: CanvasRenderingContext2D;
+    pixels: ImageData;
+  };
+  ink: string;
+  idleInk: string;
+}
+
+interface GlyphCell {
+  readonly x: number;
+  readonly y: number;
+  readonly index: number;
+  readonly fx: number;
+  readonly fy: number;
+  readonly grain: number;
+  readonly edge: number;
+  tick: number;
+  glyph: number;
+}
+
+const surfaces = new WeakMap<HTMLCanvasElement, RippleSurface>();
+
+/** The colour scheme the ink was read under (see `theme/tokens.css`). */
+function schemeOf(canvas: HTMLCanvasElement): string {
+  const document = canvas.ownerDocument;
+  return `${document?.documentElement?.getAttribute('data-dsh-ccd-style') ?? ''}|${document?.body?.hasAttribute('data-ds-dark-theme') ?? false}`;
+}
+
+function surfaceOf(canvas: HTMLCanvasElement, scheme: string): RippleSurface {
+  const cached = surfaces.get(canvas);
+  const ratio = Math.min(canvas.ownerDocument.defaultView!.devicePixelRatio || 1, 2);
+  if (cached !== undefined && cached.bitmapWidth === canvas.width && cached.bitmapHeight === canvas.height
+    && cached.ratio === ratio && cached.scheme === scheme) return cached;
+  const width = canvas.width / ratio, height = canvas.height / ratio;
+  /* Sample only the smoothly varying light on a coarse mesh. Bilinear
+     interpolation keeps it continuous without evaluating noise per glyph. */
+  const step = 18;
+  const columns = Math.max(1, Math.ceil(width / step) + 1), rows = Math.max(1, Math.ceil(height / step) + 1);
+  const cells: GlyphCell[] = [];
+  for (let y = 0; y < height; y += GLYPH_HEIGHT) for (let x = 0; x < width; x += GLYPH_WIDTH) {
+    const edge = Math.min(smooth(0, 55, x), smooth(0, 55, width - x),
+      smooth(0, 16, y), smooth(0, 100, height - y));
+    if (edge === 0) continue;
+    cells.push({ x, y, index: Math.floor(y / step) * columns + Math.floor(x / step),
+      fx: x / step % 1, fy: y / step % 1,
+      grain: hash(Math.floor(x / GLYPH_WIDTH), Math.floor(y / GLYPH_HEIGHT)),
+      edge, tick: -1, glyph: 0 });
+  }
+  const surface: RippleSurface = {
+    bitmapWidth: canvas.width, bitmapHeight: canvas.height,
+    width, height, ratio, step, columns, rows, cells,
+    light: new Float32Array(columns * rows),
+    clickLight: new Float32Array(columns * rows),
+    scheme,
+    ink: cached?.scheme === scheme ? cached.ink : '',
+    idleInk: cached?.scheme === scheme ? cached.idleInk : '',
+  };
+  surfaces.set(canvas, surface);
+  return surface;
+}
+
+const channels = (ink: string) => {
+  const value = Number.parseInt(ink.slice(1), 16);
+  return [value >> 16, value >> 8 & 255, value & 255] as const;
+};
+
+/** Shimmering ASCII rows: a grey wave field, with clicks spreading in the ink. */
+export function drawHeroRipples(canvas: HTMLCanvasElement, elapsed: number,
+  impulses: readonly HeroRippleImpulse[] = []): void {
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  const surface = surfaceOf(canvas, schemeOf(canvas));
+  const { width, height, ratio, step, columns, rows, light, clickLight } = surface;
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  if (!width || !height) return;
+  if (surface.ink === '') {
+    const style = getComputedStyle(canvas);
+    surface.ink = style.getPropertyValue('--ccd-hero-ripple-ink').trim();
+    surface.idleInk = style.getPropertyValue('--ccd-hero-ripple-idle-ink').trim();
+  }
+  const [inkRed, inkGreen, inkBlue] = channels(surface.ink);
+  const [idleRed, idleGreen, idleBlue] = channels(surface.idleInk);
+  context.fillStyle = surface.idleInk;
+  context.font = '12px monospace'; context.textBaseline = 'top';
+  // Rasterize each glyph once at device density; frames only composite sprites.
+  if (!surface.atlas && canvas.ownerDocument.createElement) {
+    const atlas = canvas.ownerDocument.createElement('canvas');
+    atlas.width = GLYPHS.length * GLYPH_WIDTH * ratio;
+    atlas.height = GLYPH_HEIGHT * ratio;
+    const ink = atlas.getContext('2d');
+    if (ink) {
+      ink.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ink.fillStyle = surface.ink;
+      ink.font = context.font; ink.textBaseline = 'top';
+      for (let i = 0; i < GLYPHS.length; i++) ink.fillText(GLYPHS[i]!, i * GLYPH_WIDTH, 0);
+      surface.atlas = atlas;
+    }
+  }
+  if (surface.atlas && !surface.layers) {
+    const glyphs = canvas.ownerDocument.createElement('canvas');
+    glyphs.width = canvas.width; glyphs.height = canvas.height;
+    const mask = canvas.ownerDocument.createElement('canvas');
+    mask.width = Math.ceil(width / GLYPH_WIDTH); mask.height = Math.ceil(height / GLYPH_HEIGHT);
+    const glyphContext = glyphs.getContext('2d'), maskContext = mask.getContext('2d');
+    if (glyphContext && maskContext?.createImageData) {
+      glyphContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+      const pixels = maskContext.createImageData(mask.width, mask.height);
+      surface.layers = { glyphs, mask, context: glyphContext, maskContext, pixels };
+    }
+  }
+  const layers = surface.layers;
+  const frame = frameAt(elapsed, width, height);
+  const fadeIn = smooth(0, 1.4, elapsed / 1000);
+  for (let row = 0; row < rows; row++) for (let col = 0; col < columns; col++) {
+    light[row * columns + col] = fieldAt(col * step, row * step, frame) * fadeIn;
+  }
+  clickLight.fill(0);
+  // Add each click only inside its bounding box, rather than testing every
+  // active click at every point of the full-screen ambient mesh.
+  for (const click of clicksAt(elapsed, width, height, impulses)) {
+    const reach = Math.sqrt(click.outerSquared) * click.scale;
+    const left = Math.max(0, Math.ceil((click.x - reach) / step));
+    const right = Math.min(columns - 1, Math.floor((click.x + reach) / step));
+    const top = Math.max(0, Math.ceil((click.y - reach) / step));
+    const bottom = Math.min(rows - 1, Math.floor((click.y + reach) / step));
+    for (let row = top; row <= bottom; row++) for (let col = left; col <= right; col++) {
+      clickLight[row * columns + col]! += clickLightAt(col * step, row * step, click);
+    }
+  }
+  for (const cell of surface.cells) {
+    const { x, y, index, fx, fy, grain, edge } = cell;
+    const ambient = mix(mix(light[index]!, light[index + 1]!, fx),
+      mix(light[index + columns]!, light[index + columns + 1]!, fx), fy);
+    const clicked = mix(mix(clickLight[index]!, clickLight[index + 1]!, fx),
+      mix(clickLight[index + columns]!, clickLight[index + columns + 1]!, fx), fy);
+    const tint = coverOf(clicked), illumination = ambient * (1 - tint) + clicked;
+    const alpha = Math.min(.72, (.012 + grain * .013) * fadeIn
+      + illumination * 1.65 * (.45 + .55 * grain)) * edge;
+    if (layers) {
+      const pixel = (Math.floor(y / GLYPH_HEIGHT) * layers.mask.width + Math.floor(x / GLYPH_WIDTH)) * 4 + 3;
+      layers.pixels.data[pixel - 3] = mix(idleRed, inkRed, tint);
+      layers.pixels.data[pixel - 2] = mix(idleGreen, inkGreen, tint);
+      layers.pixels.data[pixel - 1] = mix(idleBlue, inkBlue, tint);
+      layers.pixels.data[pixel] = alpha > .006 ? Math.round(alpha * 255) : 0;
+    }
+    if (alpha <= .006) continue;
+    const tick = Math.floor(elapsed / (300 + grain * 400) + grain * 17);
+    const changed = tick !== cell.tick;
+    if (changed) {
+      cell.tick = tick;
+      cell.glyph = Math.floor(hash(Math.floor(x / GLYPH_WIDTH) + tick * 1013,
+        Math.floor(y / GLYPH_HEIGHT)) * GLYPHS.length);
+    }
+    if (layers && surface.atlas) {
+      if (changed) {
+        layers.context.clearRect(x, y, GLYPH_WIDTH, GLYPH_HEIGHT);
+        layers.context.drawImage(surface.atlas, cell.glyph * GLYPH_WIDTH * ratio, 0,
+          GLYPH_WIDTH * ratio, GLYPH_HEIGHT * ratio, x, y, GLYPH_WIDTH, GLYPH_HEIGHT);
+      }
+      continue;
+    }
+    context.globalAlpha = alpha;
+    if (surface.atlas) {
+      context.drawImage(surface.atlas, cell.glyph * GLYPH_WIDTH * ratio, 0,
+        GLYPH_WIDTH * ratio, GLYPH_HEIGHT * ratio, x, y, GLYPH_WIDTH, GLYPH_HEIGHT);
+    } else {
+      context.fillStyle = tint > .5 ? surface.ink : surface.idleInk;
+      context.fillText(GLYPHS[cell.glyph]!, x, y);
+    }
+  }
+  context.globalAlpha = 1;
+  if (layers) {
+    // The mask carries each cell's colour and brightness; the characters cut it.
+    layers.maskContext.putImageData(layers.pixels, 0, 0);
+    const smoothing = context.imageSmoothingEnabled;
+    context.imageSmoothingEnabled = false;
+    context.drawImage(layers.mask, 0, 0,
+      layers.mask.width * GLYPH_WIDTH, layers.mask.height * GLYPH_HEIGHT);
+    context.imageSmoothingEnabled = smoothing;
+    context.globalCompositeOperation = 'destination-in';
+    context.drawImage(layers.glyphs, 0, 0, width, height);
+    context.globalCompositeOperation = 'source-over';
+  }
+}
