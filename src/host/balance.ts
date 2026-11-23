@@ -1,5 +1,73 @@
 import type { Context } from '@deepseek-ai/cordis';
-import { BALANCE_PATH, readCnyBalance } from '../shared/balance.ts';
+import { BALANCE_PATH, readCnyBalance, type CnyBalance } from '../shared/balance.ts';
+
+/** One Platform wallet row as DSH's account service projects it. */
+interface AccountWallet {
+  readonly currency: 'CNY' | 'USD';
+  readonly balance: string;
+}
+
+/** `AccountDetails['balance']` — independent query outcome, no credential crosses it. */
+interface AccountBalanceDetails {
+  readonly status: 'ready' | 'failed';
+  readonly value?: readonly AccountWallet[];
+  readonly bonusWallets?: readonly AccountWallet[];
+}
+
+/** The subset of the Host-only account service this route consumes. */
+interface AccountService {
+  getBalance(client: {
+    version: string;
+    locale: string;
+    timezoneOffsetSeconds: number;
+  }): Promise<AccountBalanceDetails | null>;
+}
+
+/** Parse one decimal money string into integer cents, rejecting anything else. */
+function centsOf(text: string): number | undefined {
+  if (!/^-?\d+(?:\.\d+)?$/.test(text)) return undefined;
+  const value = Number(text);
+  return Number.isFinite(value) ? Math.round(value * 100) : undefined;
+}
+
+/**
+ * Account-login wallet balance, read through DSH's own account service.
+ * Signed-in users have no API key, so this is the only balance their login can
+ * report: normal wallets are top-up funds and bonus wallets are granted funds.
+ * Returns null when the host has no account service, nobody is signed in, or
+ * the read fails — the route stays credential-free either way.
+ */
+export async function readAccountBalance(ctx: Context): Promise<CnyBalance | null> {
+  const account = ctx.get('deepseekAccount') as AccountService | undefined;
+  if (!account || typeof account.getBalance !== 'function') return null;
+  const details = await account.getBalance({
+    version: '0.10.6-fork.1',
+    locale: 'zh-CN',
+    timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
+  });
+  if (!details || details.status !== 'ready') return null;
+  const sumCny = (wallets: readonly AccountWallet[] | undefined): number | undefined => {
+    let total = 0;
+    let seen = false;
+    for (const wallet of wallets ?? []) {
+      if (wallet.currency !== 'CNY') continue;
+      const value = centsOf(wallet.balance);
+      if (value === undefined) return undefined;
+      total += value;
+      seen = true;
+    }
+    return seen ? total : undefined;
+  };
+  const toppedUp = sumCny(details.value);
+  const granted = sumCny(details.bonusWallets);
+  if (toppedUp === undefined && granted === undefined) return null;
+  const money = (value: number): string => (value / 100).toFixed(2);
+  return {
+    total: money((toppedUp ?? 0) + (granted ?? 0)),
+    granted: money(granted ?? 0),
+    toppedUp: money(toppedUp ?? 0),
+  };
+}
 
 interface LoaderEntry {
   readonly disabled?: boolean;
@@ -44,7 +112,11 @@ export function mountDeepSeekBalance(ctx: Context, isEnabled: () => boolean): vo
         if (!isEnabled()) return reply('unconfigured');
         try {
           const key = await readBalanceKey(injected);
-          if (!key) return reply('unconfigured');
+          if (!key) {
+            // Account login carries no API key: report the Platform wallet instead.
+            const account = await readAccountBalance(ctx).catch(() => null);
+            return account ? reply('ready', account) : reply('unconfigured');
+          }
           const response = await fetch('https://api.deepseek.com/user/balance', {
             headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
             redirect: 'error', signal: AbortSignal.any([request.signal, AbortSignal.timeout(10_000)]),
