@@ -10,8 +10,8 @@ export interface AccountBalanceBreakdown {
 /** A successful read plus what this machine has observed of daily spend. */
 export interface AccountBalanceView {
   balance: AccountBalanceBreakdown;
-  /** Spend observed today, yuan with two decimals. */
-  today: string;
+  /** Spend observed today, yuan with two decimals; null until a read follows another on the same day. */
+  today: string | null;
   /** Average daily spend, or null before any spend was observed. */
   rate: string | null;
   /** Full days the rate averages; 0 means it is today's spend alone. */
@@ -75,15 +75,6 @@ export function mountAccountBalanceHint(menu: HTMLElement, row: HTMLElement, zh:
   panel.id = `ccd-account-balance-hint-${Math.random().toString(36).slice(2, 8)}`;
   panel.popover = 'manual';
   panel.hidden = true;
-  const heading = document.createElement('div');
-  heading.className = 'ccd-balance-heading';
-  const title = document.createElement('span');
-  title.textContent = zh ? 'DeepSeek 官方 API' : 'DeepSeek API';
-  const currency = document.createElement('span');
-  currency.textContent = zh ? '人民币' : 'CNY';
-  heading.append(title, currency);
-  const summary = document.createElement('p');
-  summary.className = 'ccd-balance-summary';
   const list = (labels: string[]) => {
     const rates = document.createElement('dl');
     rates.className = 'ccd-balance-rates';
@@ -101,10 +92,7 @@ export function mountAccountBalanceHint(menu: HTMLElement, row: HTMLElement, zh:
   funds.rates.classList.add('ccd-balance-funds');
   const period = document.createElement('div');
   period.className = 'ccd-balance-period-row';
-  const note = document.createElement('p');
-  note.className = 'ccd-balance-note';
-  note.textContent = zh ? '消耗由本机记录的余额变动推算。' : 'Spend is inferred from balance changes seen on this device.';
-  panel.append(heading, summary, usage.rates, funds.rates, period, note);
+  panel.append(usage.rates, funds.rates, period);
   menu.append(panel);
   let opened = false;
   let disposed = false;
@@ -158,11 +146,10 @@ export function mountAccountBalanceHint(menu: HTMLElement, row: HTMLElement, zh:
   return {
     update(state, message, now) {
       const balance = state?.balance;
-      summary.textContent = balance ? `${zh ? '总余额' : 'Total balance'} ¥${balance.total}` : message;
       usage.rates.hidden = funds.rates.hidden = !balance;
       if (state) {
         const [today, rate, days] = usage.values as [typeof usage.values[0], typeof usage.values[0], typeof usage.values[0]];
-        today[1].textContent = `¥${state.today}`;
+        today[1].textContent = state.today === null ? '—' : `¥${state.today}`;
         rate[0].textContent = state.rateDays
           ? zh ? `近 ${state.rateDays} 天日均` : `${state.rateDays}-day average`
           : zh ? '日均（按今日）' : 'Daily (today)';
