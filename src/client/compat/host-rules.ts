@@ -32,7 +32,10 @@ export function mountHostRules(
 ): Disposer {
   const style = document.createElement('style');
   style.setAttribute(STYLE_ATTRIBUTE, '');
-  document.head.append(style);
+  /* `appendChild`, not `append`: `mountStyles` uses it too, and the packaged
+     fixture in `scripts/check-package.mjs` models only the DOM surface the
+     bundle actually needs. */
+  document.head.appendChild(style);
   let written = '';
   const apply = () => {
     let selectors;

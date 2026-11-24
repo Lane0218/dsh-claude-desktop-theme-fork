@@ -58,7 +58,7 @@ jobs:
         if: steps.passed.outputs.cache-hit != 'true' || github.event_name == 'workflow_dispatch'
         run: |
           npm run test:host -- --app "$RUNNER_TEMP/dsh-candidate/DeepSeek Harness.app" \
-            --tarball "artifacts/dsh-claude-desktop-theme-$(node -p 'require("./package.json").version').tgz"
+            --tarball "artifacts/$(node -p 'require("./package.json").name')-$(node -p 'require("./package.json").version').tgz"
           mkdir -p artifacts/host-smoke-pass
           cp artifacts/dsh-release.yml artifacts/host-smoke-pass/
       - name: Cache only a successful verification

@@ -125,6 +125,14 @@ function fakeElement(tag) {
     setAttribute: (name, value) => elementAttributes.set(name, value),
     hasAttribute: name => elementAttributes.has(name),
     removeAttribute: name => elementAttributes.delete(name),
+    /* `Element.toggleAttribute` is standard and the bundle uses it for its
+       own document markers; the fixture models only what the bundle touches. */
+    toggleAttribute: (name, force) => {
+      const next = force === undefined ? !elementAttributes.has(name) : Boolean(force);
+      if (next) elementAttributes.set(name, '');
+      else elementAttributes.delete(name);
+      return next;
+    },
     // Controls the plugin creates up front (the account row's feedback button) bind listeners at mount.
     addEventListener() {},
     removeEventListener() {},
@@ -146,6 +154,12 @@ sandbox.document = {
     hasAttribute: key => attributes.has(key),
     setAttribute: (key, value) => attributes.set(key, value),
     removeAttribute: key => attributes.delete(key),
+    toggleAttribute: (key, force) => {
+      const next = force === undefined ? !attributes.has(key) : Boolean(force);
+      if (next) attributes.set(key, '');
+      else attributes.delete(key);
+      return next;
+    },
   },
   body: fakeElement('body'),
   hidden: false,
@@ -550,8 +564,9 @@ configForms.published({ ...disabled, enabled: true, features: { ...disabled.feat
 assert.equal(blankRow.getAttribute('data-ccd-blank-session'), '', 'the blank Session row must be tagged');
 assert.equal(chatRow.getAttribute('data-ccd-blank-session'), null, 'a real Session row stays in the list');
 /* The sidebar feature mounts its column, account-menu and navigation artwork
-   sheets, plus the view-options card's and the search palette's. */
-assert.equal(styles.size, 18);
+   sheets, plus the view-options card's, the search palette's, and this fork's
+   own host-rule sheet (the one that resolves the live build's class names). */
+assert.equal(styles.size, 19);
 assert.equal(viewOptionsSeats.size, 1, 'the sidebar draws the view-options card');
 assert.deepEqual(
   Object.keys([...viewOptionsSeats][0].inject()).sort(),
@@ -571,7 +586,8 @@ for (const sidebar of [false, true]) {
     configForms.published({ ...disabled, enabled: true,
       features: { ...disabled.features, sidebar, 'right-panel': right } });
     assert.equal(paneScopes, right ? 1 : 0, 'pane layout follows only the right-sidebar switch');
-    assert.equal(styles.size, 13 + (sidebar ? 5 : 0) + (right ? 2 : 0),
+    /* The fork's sidebar adds its host-rule sheet to the four upstream sheets. */
+    assert.equal(styles.size, 13 + (sidebar ? 6 : 0) + (right ? 2 : 0),
       'left and right styles are mounted and removed independently');
   }
 }
@@ -619,8 +635,11 @@ const host = await import(pathToFileURL(join(root, 'lib/index.js')).href);
 assert.equal(typeof host.apply, 'function');
 assert.ok(host.Config);
 
+/* `npm` resolves through a `.cmd` shim on Windows, which `spawnSync` only
+   reaches through a shell; CI runs on Linux and macOS, where it is a file. */
 const result = spawnSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], {
-  cwd: root, encoding: 'utf8', env: { ...process.env, npm_config_cache: join(root, '.cache/npm') },
+  cwd: root, encoding: 'utf8', shell: process.platform === 'win32',
+  env: { ...process.env, npm_config_cache: join(root, '.cache/npm') },
 });
 if (result.error) throw result.error;
 assert.equal(result.status, 0, result.stderr);
