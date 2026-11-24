@@ -144,7 +144,7 @@ export function mountAccountBalanceHint(menu: HTMLElement, row: HTMLElement, zh:
   view.addEventListener('resize', close);
   document.addEventListener('scroll', close, true);
   return {
-    update(state, message, now) {
+    update(state, _message, now) {
       const balance = state?.balance;
       usage.rates.hidden = funds.rates.hidden = !balance;
       if (state) {
