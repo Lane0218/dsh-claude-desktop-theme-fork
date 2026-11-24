@@ -454,6 +454,8 @@ html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] > button[data-ccd-a
   padding: 0 10px;
   border-radius: var(--ccd-radius-row);
   color: var(--ccd-text);
+  font-size: var(--ccd-font-size-muted);
+  line-height: 20px;
 }
 
 html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] > button[data-ccd-account-archived]:hover,
