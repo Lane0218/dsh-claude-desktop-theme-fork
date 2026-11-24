@@ -51,6 +51,7 @@ export const sidebarFeature: ImplementedFeature = {
       error => environment.logger.error('sidebar: account menu observer failed', error),
       environment.host.themePreference,
       environment.config.view.showApiBalance,
+      environment.archivedView ?? null,
     ));
     const blankSessions = environment.host.blankSessions;
     if (blankSessions === null) {

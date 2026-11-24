@@ -3,7 +3,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
 import { ENTRY_ID } from '../../../shared/identity.ts';
 import type { FeatureEnvironment } from '../../contracts/feature.ts';
 import type { CleanupScope } from '../../core/cleanup.ts';
-import type { ViewOptionsSettingsPort } from '../../contracts/ports.ts';
+import type { ArchivedFilterIndex, ArchivedViewPort, ViewOptionsSettingsPort } from '../../contracts/ports.ts';
 import { DSH_SLOTS } from '../../compat/slots.ts';
 import { createViewOptionsDriver } from '../../compat/view-options.ts';
 import { ViewOptionsCard } from './ViewOptionsCard.tsx';
@@ -33,7 +33,7 @@ export function mountViewOptions(
   ctx: Context,
   environment: FeatureEnvironment,
   cleanup: CleanupScope,
-): { settings: ViewOptionsSettingsPort; showAllSessions(): void } {
+): { settings: ViewOptionsSettingsPort; showAllSessions(): void; archived: ArchivedViewPort } {
   cleanup.add(environment.dom.mountStyles(css));
   const driver = createViewOptionsDriver(
     document,
@@ -89,12 +89,31 @@ export function mountViewOptions(
     cleanup.add(() => off());
   }
   void driver.inspect().catch(error => environment.logger.error('view options: preferences could not be read', error));
+  /* The archived filter is one of the three values the driver reads; the account
+     menu's own row is the one control outside this card that writes it, and it
+     lives outside this feature, so it is handed the same port the card uses. */
+  const archived: ArchivedViewPort = {
+    read() {
+      const selected = driver.settings.getSnapshot()?.groups[2]?.selected ?? -1;
+      return selected === 0 || selected === 1 || selected === 2
+        ? selected as ArchivedFilterIndex
+        : null;
+    },
+    choose(filter: ArchivedFilterIndex) {
+      return driver.port.choose(2, filter);
+    },
+    subscribe: listener => driver.settings.subscribe(listener),
+  };
   return {
     settings: driver.settings,
     showAllSessions() {
+      /* Back to the host's default — archived rows hidden — which is what the
+         empty state's "show all sessions" promises: `show` would leave archived
+         rows inline and keep the list in a filter the reader never chose. */
       void (async () => {
-        await driver.port.choose(2, 1);
+        await driver.port.choose(2, 0);
       })().catch(error => environment.logger.error('sidebar: show-all-sessions failed', error));
     },
+    archived,
   };
 }

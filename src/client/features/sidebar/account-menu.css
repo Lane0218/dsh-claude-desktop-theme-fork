@@ -446,6 +446,39 @@ html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] > [role="separator"
   background: var(--ccd-border-soft);
 }
 
+/* The archived-row filter row. It is a check row rather than a menuitem, so it
+   carries its own row geometry; the check column is always laid out and only
+   its ink toggles, which keeps the label from moving as the filter flips. */
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] > button[data-ccd-account-archived] {
+  min-height: var(--ccd-account-row-height);
+  padding: 0 10px;
+  border-radius: var(--ccd-radius-row);
+  color: var(--ccd-text);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] > button[data-ccd-account-archived]:hover,
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] > button[data-ccd-account-archived]:focus-visible {
+  background: var(--ccd-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] > button[data-ccd-account-archived] > span:not([aria-hidden]) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu] [data-ccd-account-archived-check] {
+  color: var(--ccd-accent);
+  visibility: hidden;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-account-more-menu]
+  > button[data-ccd-account-archived][aria-checked="true"] [data-ccd-account-archived-check] {
+  visibility: visible;
+}
+
 /* With theme controls available, the name and controls share one header. */
 html[data-dsh-ccd-style="true"] [data-ccd-account-menu]:has([data-ccd-account-theme])::before {
   display: none;

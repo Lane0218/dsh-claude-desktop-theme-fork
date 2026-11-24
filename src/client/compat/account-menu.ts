@@ -1,4 +1,4 @@
-import type { Disposer, ThemePreferencePort } from '../contracts/ports.ts';
+import type { ArchivedViewPort, Disposer, ThemePreferencePort } from '../contracts/ports.ts';
 import { hostSelectors } from './host-dom.ts';
 import { mountAccountMore } from './account-more.ts';
 import { mountAccountTheme } from './account-theme.ts';
@@ -67,11 +67,14 @@ export function accountNameToken(name: string): string {
  *
  * @param document - renderer document carrying the sidebar and the portal.
  * @param report - sink for observer failures; the native menu stays untouched.
+ * @param theme - the appearance switch the menu's own row drives, when present.
+ * @param showApiBalance - whether the account card carries a balance reading.
+ * @param archived - the sidebar's archived filter, for the More submenu's row.
  * @returns disposer that disconnects the observers and clears every mark.
  */
 export function mountAccountMenu(
   document: Document, report: (error: unknown) => void, theme: ThemePreferencePort | null = null,
-  showApiBalance = true,
+  showApiBalance = true, archived: ArchivedViewPort | null = null,
 ): Disposer {
   const host = hostSelectors(document);
   const marked = new Set<HTMLElement>();
@@ -179,7 +182,7 @@ export function mountAccountMenu(
     target.style.setProperty(ACCOUNT_NAME_PROPERTY, accountNameToken(name));
     marked.add(target);
     if (!additions.has(target)) {
-      const disposeMore = mountAccountMore(target);
+      const disposeMore = mountAccountMore(target, archived);
       const disposeTheme = mountAccountTheme(target, theme);
       const disposeBalance = !showApiBalance || balanceSlot ? () => {} : mountAccountBalance(target, balanceCache);
       additions.set(target, () => { disposeBalance(); disposeTheme(); disposeMore(); });

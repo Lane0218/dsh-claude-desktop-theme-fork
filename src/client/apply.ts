@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type { FeatureEnvironment } from './contracts/feature.ts';
-import type { Logger } from './contracts/ports.ts';
+import type { ArchivedViewPort, Logger } from './contracts/ports.ts';
 import { adoptConfig } from '../shared/config.ts';
 import { ENTRY_ID, PLUGIN_ID } from '../shared/identity.ts';
 import { createHostServices } from './compat/adapter.ts';
@@ -239,8 +239,12 @@ export function apply(ctx: Context): void {
         /* The sidebar's view-options card is this plugin's own surface over the
            host's menu, and the empty-group rule is the one view setting the
            plugin owns; both follow the sidebar switch that draws the trigger. */
+        let archivedView: ArchivedViewPort | undefined;
         if (next.features.sidebar) {
           const view = mountViewOptions(ctx, environment, scope);
+          /* The account menu's archived row is the second reader of this driver,
+             and it mounts with the sidebar feature below. */
+          archivedView = view.archived;
           /* The trigger goes away with the fork; the card it drives stays
              reachable only through configuration. */
           scope.add(mountHostRules(
@@ -287,7 +291,9 @@ export function apply(ctx: Context): void {
         if (next.features['context-panel']) {
           mountContextPanel(ctx, environment, scope);
         }
-        mountFeatures(FEATURES, environment, scope);
+        /* The sidebar feature carries the account menu's archived row, which
+           writes the filter this block has just mounted the driver for. */
+        mountFeatures(FEATURES, archivedView === undefined ? environment : { ...environment, archivedView }, scope);
         mountConversationBackgrounds(environment, scope);
         /* Host class names are hashed per DSH build, so a build this plugin has
            never seen makes every host selector miss. That failure is silent by

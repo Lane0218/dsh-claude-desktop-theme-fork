@@ -215,6 +215,28 @@ export interface ViewOptionsSettingsPort {
   subscribe(listener: () => void): Disposer;
 }
 
+/** The archived-row filter, in the host menu's own row order: hide, show, only. */
+export type ArchivedFilterIndex = 0 | 1 | 2;
+
+/**
+ * The archived-row filter as a menu row may touch it.
+ *
+ * DSH keeps this value in the browser store behind its own view-options menu and
+ * publishes no setter for it, so `compat/view-options.ts` reads it out of that
+ * menu and writes it by clicking the host's own row. `read` therefore answers
+ * from the last drive (once at mount, then after every `choose`), which is what
+ * makes a filter set from somewhere else — the archive notice's "show archived"
+ * action — visible only after the next drive.
+ */
+export interface ArchivedViewPort {
+  /** Current filter, or null before the host's menu could be read. */
+  read(): ArchivedFilterIndex | null;
+  /** Write one filter by driving the host's own row; false when unreachable. */
+  choose(filter: ArchivedFilterIndex): Promise<boolean>;
+  /** Observe `read()` changing. */
+  subscribe(listener: () => void): Disposer;
+}
+
 /** Authoritative membership, including sessions omitted from collapsed DOM. */
 export interface SidebarSessionsPort {
   /** Durable history across all groups and filters; null while loading. */

@@ -1,7 +1,7 @@
-import type { Disposer } from '../contracts/ports.ts';
+import type { ArchivedViewPort, Disposer } from '../contracts/ports.ts';
 
 /** ui-settings-account's pinned Menu items are Settings, Contact, Sign in/out. */
-export function mountAccountMore(menu: HTMLElement): Disposer {
+export function mountAccountMore(menu: HTMLElement, archived: ArchivedViewPort | null = null): Disposer {
   const document = menu.ownerDocument;
   const view = document.defaultView;
   const contact = menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')[1];
@@ -74,6 +74,40 @@ export function mountAccountMore(menu: HTMLElement): Disposer {
     if (focus) panel.querySelector<HTMLButtonElement>('button')?.focus();
   };
   const leave = () => { cancel(); timer = view.setTimeout(close, 180); };
+  const separator = document.createElement('div');
+  separator.setAttribute('role', 'separator');
+  /* The archived-row filter leads the submenu: it is a *view* switch, and the
+     rows after it are links. DSH keeps the three values of its view-options menu
+     in the browser store and writes them only from that menu's own rows, so this
+     row writes through the driver instead of keeping a copy of its own; the
+     card stays open on the click, so the check it flips is the answer to it. */
+  let offArchived: () => void = () => {};
+  const filter = archived;
+  if (filter !== null) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('role', 'menuitemcheckbox');
+    button.setAttribute('data-ccd-account-archived', '');
+    const text = document.createElement('span');
+    text.textContent = zh ? '仅显示已归档' : 'Archived only';
+    const check = icon('<path d="M4 12.5l5 5L20 6.5"/>');
+    check.setAttribute('data-ccd-account-archived-check', '');
+    button.append(text, check);
+    const render = () => {
+      const on = filter.read() === 2;
+      button.setAttribute('aria-checked', String(on));
+      button.toggleAttribute('data-ccd-account-archived-on', on);
+    };
+    /* The driver republishes the filter after every write, so a change made from
+       the sidebar's own card reaches this row without a second read. */
+    offArchived = filter.subscribe(render);
+    button.addEventListener('click', () => {
+      const on = filter.read() === 2;
+      void filter.choose(on ? 0 : 2).then(applied => { if (applied) render(); });
+    });
+    render();
+    panel.append(button, separator.cloneNode());
+  }
   const feedback = document.createElement('button');
   feedback.type = 'button';
   feedback.setAttribute('role', 'menuitem');
@@ -86,8 +120,6 @@ export function mountAccountMore(menu: HTMLElement): Disposer {
     try { contact.click(); } finally { forwarding = false; }
   });
   panel.append(feedback);
-  const separator = document.createElement('div');
-  separator.setAttribute('role', 'separator');
   panel.append(separator);
   for (const [index, [text, url]] of [
     [zh ? 'DeepSeek 网页聊天' : 'DeepSeek Chat', 'https://chat.deepseek.com/'],
@@ -164,6 +196,7 @@ export function mountAccountMore(menu: HTMLElement): Disposer {
   return () => {
     close();
     cancel();
+    offArchived();
     resize.disconnect();
     view.removeEventListener('keydown', onKey, true);
     view.removeEventListener('resize', place);
