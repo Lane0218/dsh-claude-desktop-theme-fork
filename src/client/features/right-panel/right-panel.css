@@ -49,6 +49,13 @@ html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-tab]:ho
   background: var(--ccd-hover);
 }
 
+/* This interface keeps one session view — the conversation — so the strip's
+   add-view control is redundant beside the header's own terminal / browser /
+   folder entries, which open the same panes. */
+html[data-dsh-ccd-style="true"] [data-sidebar-right-panel] [data-dockkit-strip] [data-dockkit-add-tab] {
+  display: none;
+}
+
 /* The mark the reference puts before a tab's title: a 24px tinted square with
    the tab's own glyph in it, which the other tabs in this panel keep — those
    draw one ink over their own artwork. */

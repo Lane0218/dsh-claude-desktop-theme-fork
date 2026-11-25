@@ -1,22 +1,12 @@
 /* Reserve a rail while tools are closed. With the native rightbar open,
    information cards float above chat without changing its content width. */
-/* The separator is outside the button's hit box and selected surface. */
+/* The header button keeps its own gap; the 1px rule that used to sit between it
+   and the panel's view entries is gone — the cluster reads as one row. */
 html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities .ccd-session-info-toggle {
   position: relative;
   margin-right: 12px;
 }
 .ccd-header-action.ccd-session-info-toggle::before { display: none; }
-.ccd-session-info-toggle::after {
-  content: "";
-  position: absolute;
-  right: -7px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 1px;
-  height: 16px;
-  background: var(--ccd-border);
-  pointer-events: none;
-}
 html[data-dsh-ccd-style="true"] .ST7X_W_headerUtilities > [data-slot] .ccd-session-info-toggle svg {
   color: inherit;
 }

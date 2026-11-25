@@ -295,6 +295,15 @@ html[data-dsh-ccd-style="true"] .ST7X_W_header .ST7X_W_tabs {
   -webkit-app-region: no-drag;
 }
 
+/* One session view: this row is the chip pair that names the views (`对话` /
+   `轨迹`) plus the "more views" menu. With a single view they label a choice
+   nobody makes, so the row is not drawn: the active view keeps rendering, only
+   its controls go. The host still measures the row for its own fit logic, which
+   is why this hides the box rather than removing the seat. */
+html[data-dsh-ccd-style="true"] .ST7X_W_header .ST7X_W_tabs {
+  display: none;
+}
+
 html[data-dsh-ccd-style="true"] .ST7X_W_viewTabs {
   flex-wrap: nowrap;
   gap: 12px;

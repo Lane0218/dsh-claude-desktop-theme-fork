@@ -430,13 +430,12 @@ html[data-dsh-ccd-style="true"] .yhfFVG_trailing {
    the offsets below walk back in from the column edge to the card's own right
    edge, which the dock cannot see from where it sits.
 
-   The dock now owns the row's *last* seat rather than the one before the model:
-   the statistics cluster still stops one cluster gap short of the trailing
-   group, and the context ring hangs past it, on the row's right content edge.
-   Both offsets are built from `--ccd-ring-offset` — the trailing cluster's live
-   width, one cluster gap and the ring's own seat — so the ring lands on that
-   edge whatever the cluster measures, and the trailing group's `margin-right`
-   below keeps the model/effort pair clear of it. */
+   The dock owns the row's last seat before the model: the statistics cluster
+   still stops one cluster gap short of the trailing group, and the context ring
+   sits in the seat between them, immediately left of the model/effort pair.
+   `--ccd-ring-offset` is still the trailing cluster's live width, one cluster
+   gap and the ring's own seat, so the dock stops clear of all of it whatever the
+   cluster measures. */
 html[data-dsh-ccd-style="true"] .yhfFVG_root {
   position: relative;
   container: ccd-composer / inline-size;
@@ -476,11 +475,13 @@ html[data-dsh-ccd-style="true"] .yhfFVG_dock > * {
    its first tokens hands the seat over without moving or resizing anything. */
 html[data-dsh-ccd-style="true"] .yhfFVG_dock > .y0jqnG_root,
 html[data-dsh-ccd-style="true"] .yhfFVG_dock > .ccd-context-empty-trigger {
-  /* The fork removes the context ring under the composer: the right sidebar
-     already reports the same context usage. */
-  display: none;
+  /* The reading sits immediately left of the model/effort pair: the dock's right
+     edge already stands `--ccd-ring-offset` short of the card's edge, so one ring
+     seat back from that edge is exactly the model chip's left flank. The pair
+     hugs the right edge now (`.yhfFVG_trailing`), which is what makes the two
+     controls neighbours instead of the ring hanging past them. */
   position: absolute;
-  right: calc(-1 * var(--ccd-ring-offset));
+  right: calc(-1 * var(--ccd-context-ring-seat));
   top: 0;
   width: var(--ccd-context-ring-trigger);
   height: var(--ccd-control-row-height);
@@ -529,12 +530,12 @@ html[data-dsh-ccd-style="true"] .yhfFVG_root:has(.yhfFVG_trailingActive) .yhfFVG
   display: none;
 }
 
-/* The trailing cluster stops one ring seat short of the row's right content
-   edge, so the model/effort pair never lands under the ring. While the voice
-   control's capture row owns the bar the ring is unmounted and the seat is given
-   back, leaving the host's own capture layout whole. */
+/* The model/effort pair hugs the row's right content edge: the ring now sits to
+   its left (`--ccd-context-ring-seat` back from that edge) instead of outboard of
+   it, so the pair no longer has to keep a seat clear. While the voice control's
+   capture row owns the bar the ring is unmounted and the layout is the host's. */
 html[data-dsh-ccd-style="true"] .yhfFVG_trailing {
-  margin-right: var(--ccd-context-ring-seat);
+  margin-right: 0;
 }
 
 /* Capture replaces only the input hint and voice actions. Keep the status
