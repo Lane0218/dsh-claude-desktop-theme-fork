@@ -18,16 +18,20 @@ export interface QuoteInputActions {
  * interface rather than throw inside a render.
  */
 export interface QuoteActionProps {
+  /** Session this surface belongs to, injected by the Session scope. */
+  readonly sessionId?: string;
   /** Current selection text, re-read from the live range; null once it moved. */
   readonly readText?: () => string | null;
   readonly dismiss?: () => void;
   readonly clearSelection?: () => void;
   readonly inputActions?: QuoteInputActions;
+  /** Open the side chat for this selection; absent when the panel is unavailable. */
+  readonly ask?: (sessionId: string, text: string) => void;
 }
 
 const COPY = Object.freeze({
-  zh: { quote: '引用文本', busy: '输入框忙' },
-  en: { quote: 'Quote text', busy: 'Composer busy' },
+  zh: { quote: '引用文本', busy: '输入框忙', ask: '在右侧栏提问' },
+  en: { quote: 'Quote text', busy: 'Composer busy', ask: 'Ask in the side panel' },
 });
 
 /** How long a refused insertion explains itself before the label returns. */
@@ -40,17 +44,17 @@ function readingChinese(): boolean {
 }
 
 /**
- * Quote the selected passage into the Composer.
+ * The actions a settled selection offers.
  *
- * The host admits one interaction surface per gesture, and this cell is only
- * rendered once `mountQuoteSelection` has claimed that gesture, so mounting is
- * the whole admission — no visibility decision is made here.
+ * Two controls, because they answer different questions: the quote goes into the
+ * conversation that is already open, while the side chat asks something without
+ * touching it. The host admits one cell per gesture, so both live here.
  *
  * @param props - the Chat view's area-local selection actions and the composer seat.
- * @returns the pill, or nothing while the selection has moved away.
+ * @returns the pair of pills, or nothing once the selection has moved away.
  */
 export function QuoteAction(props: QuoteActionProps): ReactElement {
-  const { readText, dismiss, clearSelection, inputActions } = props;
+  const { sessionId, readText, dismiss, clearSelection, inputActions, ask } = props;
   const [busy, setBusy] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => {
@@ -70,14 +74,31 @@ export function QuoteAction(props: QuoteActionProps): ReactElement {
     clearSelection?.();
     dismiss?.();
   }, [clearSelection, dismiss, inputActions, readText]);
+  const openSideChat = useCallback(() => {
+    const text = readText?.() ?? null;
+    if (text === null || text.trim() === '') { dismiss?.(); return; }
+    if (sessionId === undefined || ask === undefined) return;
+    ask(sessionId, text);
+    clearSelection?.();
+    dismiss?.();
+  }, [ask, clearSelection, dismiss, readText, sessionId]);
   const copy = readingChinese() ? COPY.zh : COPY.en;
   const label = busy ? copy.busy : copy.quote;
   return (
-    <button type="button" className="ccd-quote-action" data-busy={busy ? 'true' : undefined}
-      aria-label={label}
-      onPointerDown={event => { event.preventDefault(); }}
-      onClick={insert}>
-      {label}
-    </button>
+    <span className="ccd-selection-actions">
+      <button type="button" className="ccd-quote-action" data-busy={busy ? 'true' : undefined}
+        aria-label={label}
+        onPointerDown={event => { event.preventDefault(); }}
+        onClick={insert}>
+        {label}
+      </button>
+      {ask === undefined ? null : (
+        <button type="button" className="ccd-quote-action ccd-ask-action" aria-label={copy.ask}
+          onPointerDown={event => { event.preventDefault(); }}
+          onClick={openSideChat}>
+          {copy.ask}
+        </button>
+      )}
+    </span>
   );
 }

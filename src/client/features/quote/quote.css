@@ -49,9 +49,35 @@
   outline: none;
 }
 
+.ccd-selection-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
 /* A refused insertion says so in place; the surface stays open on the
    selection, so the reader can retry once the composer is writable again. */
 .ccd-quote-action[data-busy] {
   color: var(--dsw-alias-label-secondary);
   cursor: default;
+}
+
+/*
+ * The side chat's tab body (DESIGN.md §6.11).
+ *
+ * The pane above it already owns the height; this element only has to pass that
+ * height down to the host's conversation, which lays out its own transcript and
+ * composer. `min-block-size: 0` is what keeps a long transcript scrolling inside
+ * the pane instead of stretching it.
+ */
+.ccd-side-chat {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+.ccd-side-chat > * {
+  min-block-size: 0;
 }

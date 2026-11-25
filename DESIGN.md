@@ -245,10 +245,19 @@
 ### 6.10 选区引用
 
 - 只在**已完成的正文**上出现。宿主自己检测选区、自己定位浮层（贴近选区居中、避开输入框与输入栏 dock、限制在对话列可见区内），插件只被要求画浮层里的内容，因此这里没有箭头、没有自绘阴影层次，也不在选区之外常驻。
-- 一枚药丸按钮，沿用宿主浮动控件的同一套配方：`--dsw-alias-button-floating-fill` 作底（主题已映射到 `--ccd-card`）、`--dsw-elevation-panel` 阴影、`--dsw-alias-border-l3` 发丝描边、`--dsw-alias-label-primary` 墨色；13px/20px、字重 500、高 26px、内边距 3px 10px、全圆角。悬停与键盘聚焦换成 `--dsw-alias-button-floating-hover`（`--ccd-hover`），不引入第二套配色，深色模式随 token 走。
-- 文案跟界面语言：中文 `引用文本`，其余语言 `Quote text`；宿主拒绝写入时原地改成 `输入框忙`／`Composer busy` 1.6 秒，浮层与选区都保留，可以直接重试。
-- 点击后引用以引用块进入当前会话的输入框（宿主 `insertQuote`，与手工输入同一条路径，发送时是普通 Markdown 引用），随后清掉选区并关闭浮层。
-- 落点：[quote.css](src/client/features/quote/quote.css) 是这枚药丸的全部样式，[QuoteAction.tsx](src/client/features/quote/QuoteAction.tsx) 是它和那句失败提示，认领手势与挂载槽位在 [mount.ts](src/client/features/quote/mount.ts)。
+- 两枚药丸按钮并排，间隔 6px，不做竖线分隔（浮层本身已是胶囊，内部分隔线会读成两段控件）：`引用文本` 与 `在右侧栏提问`。两者同配方：`--dsw-alias-button-floating-fill` 作底（主题已映射到 `--ccd-card`）、`--dsw-elevation-panel` 阴影、`--dsw-alias-border-l3` 发丝描边、`--dsw-alias-label-primary` 墨色；13px/20px、字重 500、高 26px、内边距 3px 10px、全圆角。悬停与键盘聚焦换成 `--dsw-alias-button-floating-hover`（`--ccd-hover`），不引入第二套配色，深色模式随 token 走。
+- 文案跟界面语言：中文 `引用文本`／`在右侧栏提问`，其余语言 `Quote text`／`Ask in the side panel`；宿主拒绝写入时引用那枚原地改成 `输入框忙`／`Composer busy` 1.6 秒，浮层与选区都保留，可以直接重试。
+- 引用按钮把选中的文字以引用块送进当前会话的输入框（宿主 `insertQuote`，与手工输入同一条路径，发送时是普通 Markdown 引用），随后清掉选区并关闭浮层。
+- 落点：[quote.css](src/client/features/quote/quote.css) 是这两枚药丸的全部样式，[QuoteAction.tsx](src/client/features/quote/QuoteAction.tsx) 是它们和那句失败提示，认领手势与挂载槽位在 [mount.ts](src/client/features/quote/mount.ts)。
+
+### 6.11 右侧栏「侧问」
+
+- **一个空白会话的对话列**，用宿主 `conversation.content` 的 `embedded` 形态画在自己的标签里。`embedded` 已经强制 `hero: false`，所以新会话页的问候、工作区选择器、模型卡和宠物都不会出现——右侧是一列空的转录加一个输入框，这就是「保持为空」的全部做法。
+- **输入框里预置两样东西**：`@主会话标题`（宿主的引用 chip，可单独删掉）和你选中的那段引文（Markdown 引用块）。光标落在引文之后，读者直接打问题。chip 与引文之间空一行，引文与光标之间空一行。
+- 侧问用**主会话当前那个模型**，权限落在 `只读`：它只回答、不动手。权限芯片就在输入框左侧，要让它动手就当场切成别的预设，不需要另开一问。
+- 首条消息发出后，宿主把 `@` 引用抓成一张主会话文本快照，作为紧随其后的上下文消息出现在同一列里；主题按既有的注入上下文样式把它收成可展开的一行。
+- 标签标题写「侧问」，同一时间只有一个：再点一次提问会先关掉上一个。
+- 落点：[SideChatTab.tsx](src/client/features/quote/SideChatTab.tsx) 是标签体与内嵌对话，[side-chat.ts](src/client/features/quote/side-chat.ts) 是建会话、对齐模型、只读预设与预填，标签类型注册在 [mount.ts](src/client/features/quote/mount.ts)。
 
 ## 七、状态、动效与可达性
 

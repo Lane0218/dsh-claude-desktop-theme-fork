@@ -108,7 +108,7 @@ export const zh = {
   'feature.context-panel': '上下文分解面板',
   'hint.context-panel': '点环打开的分段面板；关掉时环点开的是 DSH 原生面板',
   'feature.quote': '选区引用',
-  'hint.quote': '框选回答里的一段话，冒出的按钮把这段文字放进输入框；默认开启',
+  'hint.quote': '框选回答里的一段话，冒出的按钮可把这段文字放进输入框，或在右侧栏另开一个只读的「侧问」；默认开启',
 } as const;
 
 export type SettingsKey = keyof typeof zh;
@@ -213,7 +213,7 @@ export const en: Record<SettingsKey, string> = {
   'feature.context-panel': 'Context breakdown panel',
   'hint.context-panel': 'The segmented panel the ring opens; while this is off the ring opens DSH’s own panel',
   'feature.quote': 'Selection quote',
-  'hint.quote': 'Select a passage in an answer and the button that appears puts it in the composer. On by default.',
+  'hint.quote': 'Select a passage in an answer: the button that appears puts it in the composer, or opens a read-only side chat in the right panel. On by default.',
 };
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

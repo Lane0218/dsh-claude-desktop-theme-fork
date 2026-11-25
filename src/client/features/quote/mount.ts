@@ -6,6 +6,8 @@ import type { Disposer } from '../../contracts/ports.ts';
 import type { FeatureEnvironment } from '../../contracts/feature.ts';
 import { DSH_SLOTS } from '../../compat/slots.ts';
 import { QuoteAction } from './QuoteAction.tsx';
+import { SideChatConversation, SideChatTab } from './SideChatTab.tsx';
+import { createSideChat, referenceForSideChat, releaseAllSideChats, releaseSideChat } from './side-chat.ts';
 import css from './quote.css';
 
 /**
@@ -15,6 +17,9 @@ import css from './quote.css';
  * rather than the one a shipped quote plugin would use.
  */
 export const QUOTE_ACTION_ID = 'ccd-quote';
+
+/** The side chat's page kind, and its tab type id �?one name for both. */
+export const SIDE_CHAT_KIND = 'ccd-side-chat';
 
 /**
  * One admitted gesture, as `uiConversation.interactions.dispatch` builds it.
@@ -39,10 +44,32 @@ interface TextInteractionsPort {
   }): Disposer;
 }
 
-/** The slot service face used here: one injection and one keyed registration. */
+/** The slot service face used here: injections and keyed registrations. */
 interface SlotSeat {
   inject(name: string, register: () => Disposer): Disposer;
   register(options: Record<string, unknown>, component: (props: never) => ReactElement | null): Disposer;
+}
+
+/** The right-Sidebar page registry, as far as one extension type needs it. */
+interface TabTypes {
+  register(definition: {
+    readonly id: string;
+    readonly kind: string;
+    readonly title: () => string;
+    readonly keepMounted?: boolean;
+  }): Disposer;
+  registerCloseHandler?(kind: string, handler: (tab: unknown) => void): Disposer;
+}
+
+/** The navigation controller: open and enumerate this Session's tabs. */
+interface SidebarFace {
+  openTab(kind: string, options?: {
+    readonly params?: Record<string, string>;
+    readonly revealIfOpened?: boolean;
+  }): void;
+  focus(tabId: string): void;
+  close?(tabId: string): void;
+  readonly openTabs: { getSnapshot(): readonly { readonly tabId: string; readonly sessionId: string; readonly kind: string }[] };
 }
 
 /** The Session fields that decide whether another prompt is accepted. */
@@ -74,21 +101,7 @@ function acceptsPrompt(ctx: Context, sessionId: string): boolean {
   }
 }
 
-/**
- * Claim a settled-text selection and offer the quote action on it.
- *
- * The registry admits one surface per gesture, so this function is also the
- * admission decision: a right-click, a collapsed range, or a Session that takes
- * no further prompt leaves the native interface untouched.
- *
- * Both seats are optional at run time. A build without the interaction registry
- * or the slot declares nothing and the plugin simply never draws the control,
- * which is what a version older than the pinned SDK would do.
- *
- * @param ctx - client context carrying `uiConversation`, `sessions` and `slots`.
- * @param environment - logging for this activation.
- * @param scope - scope owning the interaction and the slot registration.
- */
+/** Claim a settled-text selection and offer both actions on it. */
 export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironment, scope: CleanupScope): void {
   const interactions = (ctx.uiConversation as unknown as { interactions?: TextInteractionsPort } | undefined)
     ?.interactions;
@@ -101,13 +114,31 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
     environment.logger.debug('quote: no slot service; the action stays off');
     return;
   }
+  const face = ctx as unknown as { sidebarRight?: SidebarFace; sidebarRightTabs?: TabTypes };
+  const sidebar = face.sidebarRight;
+  const tabTypes = face.sidebarRightTabs;
+  const sideChat = sidebar !== undefined && typeof sidebar.openTab === 'function'
+    && tabTypes !== undefined && typeof tabTypes.register === 'function';
+  if (!sideChat) {
+    environment.logger.debug('quote: the right Sidebar is unavailable; the side-chat action stays off');
+  } else {
+    mountSideChat(ctx, environment, scope, slots, tabTypes);
+  }
   /* The cell goes in before the admission: a claimed gesture whose cell never
      registered would swallow the selection and draw nothing, which is worse
      than leaving every other occupant of that surface free to claim it. */
   scope.add(environment.dom.mountStyles(css));
   try {
     scope.add(slots.inject(DSH_SLOTS.textInteraction, () => slots.register(
-      { name: DSH_SLOTS.textInteraction, key: QUOTE_ACTION_ID },
+      {
+        name: DSH_SLOTS.textInteraction,
+        key: QUOTE_ACTION_ID,
+        inject: () => ({
+          ask: sideChat
+            ? (sessionId: string, text: string) => { void askInSideChat(ctx, environment, sidebar, sessionId, text); }
+            : undefined,
+        }),
+      },
       QuoteAction,
     )));
   } catch (error) {
@@ -124,4 +155,70 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
       request.open();
     },
   }));
+}
+
+/**
+ * Open one side chat for a selection, replacing any earlier one.
+ *
+ * "One at a time" is not a policy the panel can express, so the previous tab of
+ * this kind is closed first: two side chats would each hold a Session, and only
+ * one of them can be the answer to what the reader just selected.
+ */
+async function askInSideChat(
+  ctx: Context,
+  environment: FeatureEnvironment,
+  sidebar: SidebarFace,
+  mainSessionId: string,
+  quote: string,
+): Promise<void> {
+  const target = await createSideChat(ctx, environment, mainSessionId, quote);
+  if (target === undefined) return;
+  try {
+    const previous = sidebar.openTabs.getSnapshot()
+      .filter(tab => tab.sessionId === mainSessionId && tab.kind === SIDE_CHAT_KIND);
+    for (const tab of previous) sidebar.close?.(tab.tabId);
+    sidebar.openTab(SIDE_CHAT_KIND, { params: { sessionId: target.sessionId } });
+  } catch (error) {
+    environment.logger.error('side chat: the right panel refused the tab', error);
+    releaseSideChat(target.sessionId);
+  }
+}
+
+/** Register the side-chat page type, its body, and the conversation it renders. */
+function mountSideChat(
+  ctx: Context,
+  environment: FeatureEnvironment,
+  scope: CleanupScope,
+  slots: SlotSeat,
+  tabTypes: TabTypes,
+): void {
+  scope.add(tabTypes.register({
+    id: SIDE_CHAT_KIND,
+    kind: SIDE_CHAT_KIND,
+    title: () => (document.documentElement.lang || '').toLowerCase().startsWith('zh') ? '侧问' : 'Side chat',
+    keepMounted: true,
+  }));
+  try {
+    scope.add(slots.inject('sidebar.right.pane.tab', () => slots.register({
+      name: 'sidebar.right.pane.tab',
+      key: SIDE_CHAT_KIND,
+      children: { 'sidebar.chat.conversation': { kind: 'single', scope: 'session' } },
+      inject: () => ({ referenceFor: (sessionId: string) => referenceForSideChat(ctx, sessionId) }),
+    }, SideChatTab)));
+    scope.add(slots.inject('sidebar.chat.conversation', () => slots.register({
+      name: 'sidebar.chat.conversation',
+    }, SideChatConversation)));
+  } catch (error) {
+    environment.logger.error('side chat: the conversation seats were refused', error);
+    return;
+  }
+  scope.add(releaseAllSideChats);
+  /* The panel closes the tab on its own terms; the reference this plugin holds
+     has to go with it, or the Session stays retained for the whole process. */
+  const offClose = tabTypes.registerCloseHandler?.(SIDE_CHAT_KIND, tab => {
+    const record = tab as { readonly contentId?: string; readonly params?: { readonly sessionId?: string } } | undefined;
+    const sessionId = record?.params?.sessionId ?? record?.contentId;
+    if (typeof sessionId === 'string') releaseSideChat(sessionId);
+  });
+  if (offClose !== undefined) scope.add(offClose);
 }
