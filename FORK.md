@@ -16,6 +16,7 @@ verbatim upstream 0.10.6 source; every later commit is one local change.
 | `feat(account): put the balance on the account row ...` | Balance moved into the footer as a capsule, hit areas separated, feedback button and theme-drawn chevron removed. |
 | `feat(account): trim the balance hover panel` | Heading, total summary and ledger note deleted from the hover panel. |
 | `feat(account): archived-only switch in the More submenu` | A check row in the account menu's More submenu flips the host's archived-row filter between `only` and the default hide. It reads and writes through the view-options driver (`ArchivedViewPort`), so the host's browser store stays the single source; the empty state's "show all sessions" now returns to the default instead of leaving archived rows inline. |
+| `feat(sidebar): keep empty workspaces visible by default` | `view.showEmptyGroups` now defaults on, so a Workspace keeps its heading before its first Session and when the current filter leaves it empty. The switch is authoritative: with it off, empty Workspaces leave the column and a column with no history gives way to the welcome prompt. The empty state itself is decided by visible Session rows, so a filter that matches nothing still offers "show all sessions". |
 | `chore(build): give the fork its own package identity` | `dsh-claude-desktop-theme-fork`, bundle row renamed, `scripts/build-fork.mjs` (esbuild only, no `.d.ts`). |
 
 ## Install locally

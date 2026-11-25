@@ -3,16 +3,19 @@ import { hostSelectors } from './host-dom.ts';
 import { recordsIntroduce, recordsTouch } from './mutation-scope.ts';
 
 /**
- * Workspaces with nothing to show, kept out of the sidebar.
+ * Workspaces with nothing to show, kept in the sidebar unless asked otherwise.
  *
  * The `显示空分组` row in the view-options card writes `view.showEmptyGroups`,
- * whose default is off: a Workspace whose rows are all hidden by the current
- * filter disappears from the column instead of standing there as a heading over
- * nothing. With no durable history, all headings give way to a welcome prompt
- * even if empty groups are enabled. DSH has no such setting of its own — the host draws one empty state
- * for the whole tree (`EmptySessions`, `data-row-key="empty"`, rendered only
- * when there are no groups at all), never one per Workspace — so this is the
- * plugin's own behaviour and this module is where it is decided.
+ * which the fork defaults to on: a Workspace keeps its heading even when the
+ * current filter leaves it nothing, and even before its first Session — a
+ * Workspace is how the reader names a place to work, so it should not vanish
+ * for being new. Turning the switch off restores the reference's behaviour: a
+ * Workspace whose rows are all hidden leaves the column, and a column with no
+ * durable history at all gives way to the welcome prompt instead of a stack of
+ * empty headings. DSH has no such setting of its own — the host draws one empty
+ * state for the whole tree (`EmptySessions`, `data-row-key="empty"`, rendered
+ * only when there are no groups at all), never one per Workspace — so this is
+ * the plugin's own behaviour and this module is where it is decided.
  *
  * A group is the `WorkspaceBrowser` box that holds one Workspace's row, its
  * nested groups and its Session rows (`._7514NG_groupSection`). It is empty
@@ -32,9 +35,7 @@ import { recordsIntroduce, recordsTouch } from './mutation-scope.ts';
  * module worth knowing: the host measures its keyed rows inside that commit
  * (`blank-session-rows.ts` records the 200 ms glide that follows a late change),
  * so a group hidden here can arrive with the rows below it already placed. The
- * plugin's own default makes this the common path, so the first paint is checked
- * on a real machine; if it shows, the fix is to write the same attribute from
- * the previous pass's answer before the rows mount, not to move this test.
+ * current default keeps groups, so this only matters when the switch is off.
  *
  * @param document - renderer document carrying the sidebar.
  * @param hideEmpty - whether empty groups are being kept out (the config's
@@ -172,7 +173,10 @@ export function mountEmptyGroups(
       ? area.querySelectorAll<HTMLElement>(host.workspaceGroup)
       : document.querySelectorAll<HTMLElement>(host.workspaceGroup);
     for (const group of groups) {
-      if (noHistory || (hideEmpty && !keepsGroup(group, populated))) wanted.add(group);
+      /* The switch decides alone. A Workspace with no Session under the current
+         filter — or with no history at all yet — keeps its heading while empty
+         groups are being shown, which is what the fork defaults to. */
+      if (hideEmpty && (noHistory || !keepsGroup(group, populated))) wanted.add(group);
     }
     /* Only the difference is written: this pass runs on every mutation batch,
        and re-marking a group the sheet already hides is churn for nothing. */
@@ -186,14 +190,17 @@ export function mountEmptyGroups(
       node.setAttribute('data-ccd-empty-group', '');
       marked.add(node);
     }
-    // Do not replace search/loading UI. A native empty row, or a complete set
-    // of groups hidden by our rule, establishes that the session tree is empty.
-    const flatRows = area?.querySelectorAll<HTMLElement>('[data-row-key^="session:"], [data-row-key^="overflow:"]');
-    const flatEmpty = flatRows !== undefined && flatRows.length > 0
-      && [...flatRows].every(row => row.hasAttribute('data-ccd-blank-session'));
-    const empty = groups.length > 0
-      ? wanted.size === groups.length
-      : area !== null && (area.querySelector('[data-row-key="empty"]') !== null || flatEmpty);
+    /* Emptiness is read from the rows, not from the headings this pass hides:
+       with empty groups kept, a filtered view has headings and nothing under
+       them, and the prompt is the reader's only way back to the unfiltered
+       list. A provisional New Session row is not a Session to show. Sidebar
+       search and loading states draw their own surfaces, so neither counts. */
+    const rows = area?.querySelectorAll<HTMLElement>('[data-row-key^="session:"]');
+    const shown = rows === undefined
+      ? []
+      : [...rows].filter(row => !row.hasAttribute('data-ccd-blank-session'));
+    const nativeEmpty = area !== null && area.querySelector('[data-row-key="empty"]') !== null;
+    const empty = shown.length === 0 && (groups.length > 0 || nativeEmpty);
     renderEmptyState(area, empty, noHistory);
   };
 

@@ -123,13 +123,13 @@ export const DEFAULT_FONTS: FontsConfig = Object.freeze({
 /**
  * The view-options section's defaults.
  *
- * `showEmptyGroups` is off, which means the sidebar hides a Workspace that has
- * no Session under the current filter — the reference's own default for that
- * switch, and the reason the row in the view-options card reads as "off" on a
- * fresh install.
+ * `showEmptyGroups` is on: every Workspace keeps its heading in the sidebar even
+ * when the current filter leaves it nothing, so a Workspace created before its
+ * first Session is still a place to click. Upstream's default was off; turning
+ * the switch off restores it, dropping empty Workspaces from the column.
  */
 export const DEFAULT_VIEW: ViewConfig = Object.freeze({
-  showEmptyGroups: false,
+  showEmptyGroups: true,
   groupByStatus: false,
   showHeaderSubagents: false,
   showHeaderTeam: false,
