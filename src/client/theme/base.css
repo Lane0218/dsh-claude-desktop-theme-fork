@@ -1,6 +1,18 @@
 /* Window and central canvas surfaces. Column widths remain owned by ui-layout;
    each sidebar feature paints its own column and controls. */
 html[data-dsh-ccd-style="true"] body {
+  /* One type scale, anchored to the host's conversation size (General settings →
+     conversation font size) so the chrome never sits two steps under the
+     transcript. `--dsh-content-font-size` is painted on body by the host's theme
+     presenter, which is why the derivation lives here and not on :root: a
+     custom property resolves its own var() where it is declared. At the
+     reference's 14px host these produce 14/13 and 19/16/15 — the documented
+     ladder; the literals in tokens.css stay as the no-host fallback. */
+  --ccd-font-size-body: var(--dsh-content-font-size, 14px);
+  --ccd-font-size-muted: calc(var(--dsh-content-font-size, 14px) - 1px);
+  --ccd-font-size-h1: calc(var(--dsh-content-font-size, 14px) + 5px);
+  --ccd-font-size-h2: calc(var(--dsh-content-font-size, 14px) + 2px);
+  --ccd-font-size-h3: calc(var(--dsh-content-font-size, 14px) + 1px);
   font-family: var(--ccd-font-ui);
   color: var(--ccd-text);
   -webkit-font-smoothing: antialiased;

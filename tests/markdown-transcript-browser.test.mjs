@@ -288,21 +288,22 @@ test('the transcript markdown overrides lay out the way the reference crop measu
       assert.equal(on.quotePadding, '15px');
       assert.equal(on.quoteInk, 'rgb(111, 111, 106)', 'quote text is the secondary ink, not body ink');
 
-      /* Body leading. The reference runs its 14px body on a 20px line where the
-         host draws 24px — two lines of one paragraph sit 30.7 device px apart in
-         its window against this plugin's 36.6 — and its 46-device-px paragraph
-         gap is that 20px line plus the 10px margin both sides already share.
-         The host's own 16px paragraph margin is the off state below. */
-      assert.equal(on.bodyLine, '20px', 'the transcript takes the reference leading, not the host 24px');
+      /* Body leading. The host runs its conversation text at 15px in this
+         profile, and CJK ink fills the em box, so the transcript's line is
+         26px (1.73) instead of the 20px the reference draws over its own 14px
+         body — at the reference's ratio the 15px glyphs nearly touch. The
+         paragraph gap is still the reference's 10px margin a side, and the
+         host's own 16px margin is the off state below. */
+      assert.equal(on.bodyLine, '26px', 'the transcript opens the line for a 15px CJK body');
       assert.equal(on.paraGap, 10, 'a paragraph break keeps the reference 10px margin');
-      assert.equal(on.para2Height % 20, 0, 'a wrapped paragraph runs on that same leading');
+      assert.equal(on.para2Height % 26, 0, 'a wrapped paragraph runs on that same leading');
       assert.ok(on.para2Height >= 40, `the fixture paragraph wraps, got ${on.para2Height}px`);
 
       /* Task list: the reference draws the checkbox alone where the host leaves
          the marker and its 6px item margin. */
       assert.equal(on.taskStyle, 'none', 'a task row draws no list marker');
-      assert.equal(on.taskPitch, 20, 'a task row is one line of the transcript');
-      assert.equal(on.listPitch, 26, 'an ordinary list item keeps the host 6px margin on that line');
+      assert.equal(on.taskPitch, 26, 'a task row is one line of the transcript');
+      assert.equal(on.listPitch, 32, 'an ordinary list item keeps the host 6px margin on that line');
 
       /* Link: the reference draws link text alone, with no category glyph. */
       assert.equal(on.linkIcon, 'none');
@@ -322,10 +323,9 @@ test('the transcript markdown overrides lay out the way the reference crop measu
       /* Table: untouched, and still the CCD card (the row keeps the host's
          padding through the plugin's own cell rule). The reference's own head
          fill measures #efefef at @2x, which is this raised step. The row is the
-         51 device px both shots measure, paid as the transcript's 20px line
-         plus 6px of cell padding a side. */
+         transcript's 26px line plus 6px of cell padding a side and its border. */
       assert.equal(on.tableHeadFill, 'rgb(240, 240, 239)', 'the head keeps the CCD raised fill');
-      assert.equal(on.tableRow, 33, 'the row keeps the reference height under the tighter leading');
+      assert.equal(on.tableRow, 39, 'the row follows the transcript line under the cell padding');
 
       /* With the gate off the sheet must not reach the host at all. */
       await page.evaluate(`document.documentElement.removeAttribute('data-dsh-ccd-style')`);

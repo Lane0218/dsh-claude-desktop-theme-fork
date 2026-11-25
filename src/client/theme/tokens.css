@@ -428,6 +428,10 @@ html[data-dsh-ccd-style="true"] {
   --ccd-code-fallback: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --ccd-font-ui: var(--ccd-font-fallback);
   --ccd-font-code: var(--ccd-code-fallback);
+  /* The reference's body step. `base.css` re-derives body/muted/h1–h3 from the
+     host's conversation size (`--dsh-content-font-size`), so these literals are
+     what a 14px host resolves to; they keep anything outside that scope — and
+     the no-host case — on the reference's own numbers. */
   --ccd-font-size-body: 14px;
   --ccd-font-size-muted: 13px;
   /* Blank-session title. The reference's own type scale puts the greeting on
@@ -450,8 +454,12 @@ html[data-dsh-ccd-style="true"] {
      24px draws 36.6, and both shots put their body's CJK ink at 20 device px
      with a 770px Composer at 1176 (1.53 device px per CSS px), so the two are
      read at one scale. The reference's paragraph-to-paragraph gap is 46 device
-     px — this 20px line plus the 10px margin both sides already share. */
-  --ccd-transcript-line-height: 24px;
+     px — this 20px line plus the 10px margin both sides already share.
+     The 24px above is what the reference asks for at its own 14px body; the
+     host runs conversation text at 15px by default in this profile, and CJK
+     ink fills the em box, so the line is opened to 26px (1.73) to keep the
+     ink-to-gap ratio the reference actually reads at. */
+  --ccd-transcript-line-height: 26px;
   /* The one step up from the host's own 400: used where a control has to read
      as a chosen value rather than as chrome (model, reasoning effort). */
   --ccd-font-weight-strong: 600;
