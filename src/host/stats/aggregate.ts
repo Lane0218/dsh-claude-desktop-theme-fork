@@ -5,13 +5,12 @@
  * host: the service layer owns the session listing, the cold reads and the
  * transport, this file owns only the arithmetic.
  *
- * The card offers the reference's three ranges, and the reference computes all
- * of them from the same per-day tables: a range is a lower date bound
- * (`start = today - (days - 1)`) over days, messages and per-day model tokens,
- * while each session is counted once when any of its active days falls inside
- * the range. `Peak hour` is the one tile the reference leaves unfiltered — it
- * reads that value from its unfiltered statistics — so the hour histogram here
- * is all-time as well.
+ * The card offers four ranges, and each is computed from the same per-day
+ * tables: a range is a lower date bound (`start = today - (days - 1)`) over
+ * days, messages, per-day model tokens and the per-day hour histogram, while
+ * each session is counted once when any of its active days falls inside the
+ * range. `Peak hour` is computed inside the range too — since this fork added
+ * `today`, an all-time peak would be the wrong answer on the default view.
  *
  * The one bounded output is the shipped day list: the ranges count every
  * active day, while `days` and `modelDays` carry only the most recent
@@ -20,7 +19,7 @@
  */
 import {
   STATS_DAY_LIMIT, STATS_RANGES, STATS_VERSION,
-  type StatsDay, type StatsModelDayRow, type StatsModelIO, type StatsModelTokens,
+  type StatsDay, type StatsModelDayRow, type StatsModelTokens,
   type StatsRangeId, type StatsRangeTotals, type StatsRanges, type StatsSessionUsage,
   type StatsSnapshot,
 } from '../../shared/stats.ts';
@@ -58,16 +57,14 @@ function peak(counts: ReadonlyMap<string, number>, skip: string): string | null 
   return best;
 }
 
-/** Everything the three ranges are computed from. */
+/** Everything the four ranges are computed from. */
 interface Collected {
   /** One set of active days per session that did work of its own. */
   readonly sessionDates: Set<string>[];
   /** Local day → human prompts. */
   readonly prompts: Map<string, number>;
-  /** Local hour → prompts, all time. */
-  readonly hours: Map<number, number>;
-  /** Model → all-time counters. */
-  readonly modelUsage: Map<string, { t: number; i: number; o: number }>;
+  /** Local day → local hour → prompts. */
+  readonly hoursByDay: Map<string, Map<number, number>>;
   /** Local day → model → tokens. */
   readonly modelDays: Map<string, Map<string, number>>;
 }
@@ -80,14 +77,11 @@ function collect(value: StatsSessionUsage, collected: Collected): void {
     dates.add(date);
     collected.prompts.set(date, (collected.prompts.get(date) ?? 0) + count);
   }
-  for (const [hour, count] of value.hours) collected.hours.set(hour, (collected.hours.get(hour) ?? 0) + count);
-  for (const [model, tokens, input, output] of value.models) {
-    const previous = collected.modelUsage.get(model) ?? { t: 0, i: 0, o: 0 };
-    collected.modelUsage.set(model, {
-      t: previous.t + tokens,
-      i: previous.i + input,
-      o: previous.o + output,
-    });
+  for (const [day, hour, count] of value.dayHours) {
+    dates.add(day);
+    const perHour = collected.hoursByDay.get(day) ?? new Map<number, number>();
+    perHour.set(hour, (perHour.get(hour) ?? 0) + count);
+    collected.hoursByDay.set(day, perHour);
   }
   for (const [date, at, tokens] of value.modelDays) {
     /* The index addresses the session's own model table; a row that cannot be
@@ -150,6 +144,35 @@ function totalsFor(collected: Collected, start: string | null): StatsRangeTotals
 }
 
 /**
+ * The busiest local hour inside one range.
+ *
+ * Ties go to the earliest hour, which is the rule the single-histogram version
+ * used; only hours the range actually saw can win, so `today` on a quiet
+ * morning answers null instead of yesterday's peak.
+ *
+ * @param collected - the library's tables.
+ * @param start - first day key the range covers, or null for `all`.
+ * @returns the hour, or null when the range saw no prompt.
+ */
+function peakHour(collected: Collected, start: string | null): number | null {
+  const counts = new Map<number, number>();
+  for (const [day, perHour] of collected.hoursByDay) {
+    if (start !== null && day < start) continue;
+    for (const [hour, count] of perHour) counts.set(hour, (counts.get(hour) ?? 0) + count);
+  }
+  let best: number | null = null;
+  let bestCount = 0;
+  for (let hour = 0; hour < HOURS_PER_DAY; hour += 1) {
+    const count = counts.get(hour) ?? 0;
+    if (count > bestCount) {
+      best = hour;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/**
  * Aggregate every session's fold result into the card's snapshot.
  *
  * @param values - one view per visible stored session.
@@ -163,14 +186,18 @@ export function aggregateUsage(
   const collected: Collected = {
     sessionDates: [],
     prompts: new Map<string, number>(),
-    hours: new Map<number, number>(),
-    modelUsage: new Map<string, { t: number; i: number; o: number }>(),
+    hoursByDay: new Map<string, Map<number, number>>(),
     modelDays: new Map<string, Map<string, number>>(),
   };
   for (const value of values) collect(value, collected);
 
   const ranges = {} as Record<StatsRangeId, StatsRangeTotals>;
-  for (const range of STATS_RANGES) ranges[range] = totalsFor(collected, rangeStart(range, options.now));
+  const busyHours = {} as Record<StatsRangeId, number | null>;
+  for (const range of STATS_RANGES) {
+    const start = rangeStart(range, options.now);
+    ranges[range] = totalsFor(collected, start);
+    busyHours[range] = peakHour(collected, start);
+  }
 
   /* Both shipped tables follow one cutoff, so the chart cannot reference a day
      the heatmap's own window dropped. */
@@ -189,31 +216,12 @@ export function aggregateUsage(
       if (tokens > 0) modelDays.push([date, model, tokens]);
     }
   }
-  /* The legend only ever draws models the ranges list, so the unknown bucket is
-     dropped here too; its tokens stay in every range's total. */
-  const modelIO: StatsModelIO[] = [...collected.modelUsage.entries()]
-    .filter(([model, usage]) => model !== UNKNOWN_MODEL && usage.t > 0)
-    .sort(([left], [right]) => byKey(left, right))
-    .map(([model, usage]) => [model, usage.i, usage.o] as const);
-
-  /* Hours compare numerically, so the earliest hour wins a tie. */
-  let busyHour: number | null = null;
-  let busyCount = 0;
-  for (let hour = 0; hour < HOURS_PER_DAY; hour += 1) {
-    const count = collected.hours.get(hour) ?? 0;
-    if (count > busyCount) {
-      busyHour = hour;
-      busyCount = count;
-    }
-  }
-
   return {
     version: STATS_VERSION,
     ranges: ranges as StatsRanges,
-    busyHour,
+    busyHours,
     days,
     modelDays,
-    modelIO,
     pending: options.pending,
     missed: options.missed,
     computedAt: options.now,

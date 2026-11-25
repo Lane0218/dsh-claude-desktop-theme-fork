@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { sameStatsDisplay, sameStatsSnapshot, sameStatsUsage, type StatsSessionUsage } from '../src/shared/stats.ts';
 import { aggregateUsage } from '../src/host/stats/aggregate.ts';
 
-const usage: StatsSessionUsage = { prompts: 1, tokens: 10, days: [['2026-10-26', 1]], hours: [[12, 1]],
+const usage: StatsSessionUsage = { prompts: 1, tokens: 10, days: [['2026-10-26', 1]], dayHours: [['2026-10-26', 12, 1]],
   models: [['demo/model', 10, 7, 3]], modelDays: [['2026-10-26', 0, 10]] };
 const snapshot = () => aggregateUsage([usage], { now: new Date(2026, 9, 26).getTime(), pending: 0, missed: 0 });
 
@@ -15,11 +15,12 @@ test('display equality ignores transport metadata while snapshot equality retain
   assert.equal(sameStatsSnapshot(a, { ...b, missed: 1 }), false);
 });
 
-test('range, heatmap, chart, model IO and busiest-hour changes invalidate the display', () => {
+test('range, heatmap, chart and busiest-hour changes invalidate the display', () => {
   const a = snapshot();
   for (const b of [
-    { ...a, version: a.version + 1 }, { ...a, busyHour: 13 }, { ...a, days: [] }, { ...a, modelDays: [] },
-    { ...a, modelIO: [] }, { ...a, ranges: { ...a.ranges, '7d': { ...a.ranges['7d'], tokens: 0 } } },
+    { ...a, version: a.version + 1 }, { ...a, busyHours: { ...a.busyHours, all: 13 } },
+    { ...a, days: [] }, { ...a, modelDays: [] },
+    { ...a, ranges: { ...a.ranges, '7d': { ...a.ranges['7d'], tokens: 0 } } },
     { ...a, ranges: { ...a.ranges, all: { ...a.ranges.all, models: [] } } },
   ]) assert.equal(sameStatsDisplay(a, b), false);
 });
@@ -28,7 +29,7 @@ test('effective session equality covers prompt counts, token IO and every sparse
   assert.equal(sameStatsUsage(usage, structuredClone(usage)), true);
   assert.equal(sameStatsUsage(undefined, usage), false);
   for (const changed of [
-    { ...usage, prompts: 2 }, { ...usage, tokens: 11 }, { ...usage, days: [] }, { ...usage, hours: [] },
+    { ...usage, prompts: 2 }, { ...usage, tokens: 11 }, { ...usage, days: [] }, { ...usage, dayHours: [] },
     { ...usage, models: [] }, { ...usage, modelDays: [] },
   ]) assert.equal(sameStatsUsage(usage, changed), false);
 });

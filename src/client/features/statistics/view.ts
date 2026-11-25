@@ -1,5 +1,5 @@
 /**
- * Snapshot → card data: the reference's own presentation rules.
+ * Snapshot → card data: the card's own presentation rules.
  *
  * Two views share one snapshot. `Overview` draws 182 days (26 columns × 7 rows)
  * ending on the Saturday of the current week, with the day rows running
@@ -9,15 +9,14 @@
  * `Models` draws one bar per day that produced tokens, stacked by model and
  * scaled to the axis the reference derives from the busiest day.
  *
- * The range switch filters the tiles, the chart and the footer sentence, but
- * not the heatmap or `Peak hour`: the reference feeds both from unfiltered
- * statistics, and its heatmap is a fixed 182-day window.
+ * The range switch filters the tiles, the chart and the peak hour, but not the
+ * heatmap: the heatmap is a fixed 182-day window, which is what keeps the
+ * `today` view from reading as an empty card.
  */
 import {
   localDayKey, rangeStart,
   type StatsDay, type StatsModelTokens, type StatsRangeId, type StatsSnapshot,
 } from '../../../shared/stats.ts';
-import { bookNote } from './books.ts';
 import { STATS_COPY } from './locales.ts';
 import {
   HEAT_COLUMNS, HEAT_ROWS, LEGEND_LIMIT, heatLevel,
@@ -37,14 +36,15 @@ const EMPTY = '\u2014';
 /** The reference's own tabs, in its order. */
 export const STATS_TABS: readonly StatsOption<StatsTabId>[] = [
   { id: 'overview', label: '概览' },
-  { id: 'models', label: '模型' },
+  { id: 'models', label: '用量' },
 ];
 
-/** The reference's own ranges, in its order. */
+/** The card's ranges, shortest first. */
 export const STATS_RANGE_OPTIONS: readonly StatsOption<StatsRangeId>[] = [
-  { id: 'all', label: '全部' },
-  { id: '30d', label: '近30天' },
+  { id: 'today', label: '今天' },
   { id: '7d', label: '近7天' },
+  { id: '30d', label: '近30天' },
+  { id: 'all', label: '全部' },
 ];
 
 /** Which view and range the card is showing. */
@@ -53,8 +53,30 @@ export interface StatsViewState {
   readonly range: StatsRangeId;
 }
 
-/** What a freshly mounted card shows, matching the reference's defaults. */
-export const INITIAL_STATS_VIEW: StatsViewState = { tab: 'overview', range: 'all' };
+/** What a freshly mounted card shows: today's numbers. */
+export const INITIAL_STATS_VIEW: StatsViewState = { tab: 'overview', range: 'today' };
+
+/**
+ * Consecutive active days ending on or just before today.
+ *
+ * The streak survives an untouched morning: when today has no prompts yet the
+ * run is counted from yesterday, which is the friendly rule calendars use.
+ *
+ * @param days - the snapshot's day table, oldest first.
+ * @param now - the instant "today" is read from.
+ * @returns the number of consecutive days, 0 when yesterday is empty too.
+ */
+export function activeStreak(days: readonly StatsDay[], now: Date): number {
+  const active = new Set(days.filter(([, count]) => count > 0).map(([date]) => date));
+  const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (!active.has(localDayKey(cursor.getTime()))) cursor.setDate(cursor.getDate() - 1);
+  let streak = 0;
+  while (active.has(localDayKey(cursor.getTime()))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
 
 /**
  * The reference hides models below this share of the range's tokens, in the
@@ -67,14 +89,19 @@ const MODEL_SHADES = 6;
 
 /** What the card draws for the 182-day window. */
 export interface HeatWindow {
-  /** One cell per day, column-major: `column * 7 + row`, Sunday first. */
+  /** One cell per day, column-major: `column * 7 + row`, Monday first. */
   readonly heat: readonly HeatCell[];
   /** First index drawn after today; those cells stay transparent. */
   readonly futureFrom: number;
 }
 
 /**
- * Lay the host's sparse day counts out on the reference's 26-week grid.
+ * Lay the host's sparse day counts out on the 26-week grid.
+ *
+ * Every column is one calendar week with Monday in the first row, so the grid
+ * reads like a calendar rather than starting on Sunday. The window ends on the
+ * Sunday of the current week, which is what makes the first cell of a column a
+ * Monday; days after today stay transparent.
  *
  * @param days - local day keys with their counts.
  * @param now - the current instant (injectable for tests).
@@ -84,7 +111,7 @@ export function heatWindow(days: readonly StatsDay[], now: Date = new Date()): H
   const counts = new Map(days);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const end = new Date(today);
-  end.setDate(end.getDate() + (6 - end.getDay()));
+  end.setDate(end.getDate() + ((7 - end.getDay()) % 7));
   const start = new Date(end);
   start.setDate(start.getDate() - (HEAT_DAYS - 1));
 
@@ -156,33 +183,38 @@ export function modelColor(index: number): string {
  *
  * @param snapshot - the host's aggregate.
  * @param range - the selected range.
- * @param random - stable draw for the footer's book choice.
  * @param now - the current instant (injectable for tests).
- * @returns tiles, heat cells and the footer sentence.
+ * @param language - copy language.
+ * @returns tiles, heat cells and today's cell index.
  */
 export function buildOverview(
   snapshot: StatsSnapshot,
   range: StatsRangeId,
-  random: () => number,
   now: Date = new Date(),
   language: 'zh' | 'en' = 'zh',
 ): StatsOverviewData {
   const copy = STATS_COPY[language];
   const totals = snapshot.ranges[range];
   const window = heatWindow(snapshot.days, now);
+  const hour = snapshot.busyHours[range] ?? null;
   const tiles: StatsTile[] = [
     { label: copy.tiles[0], value: formatCount(totals.sessions) },
     { label: copy.tiles[1], value: formatCount(totals.messages) },
     { label: copy.tiles[2], value: formatTokens(totals.tokens) },
-    { label: copy.tiles[3], value: formatCount(totals.activeDays) },
-    { label: copy.tiles[4], value: snapshot.busyHour === null ? EMPTY : formatHour(snapshot.busyHour) },
+    /* `Active days` collapses to 0-or-1 inside a single day, so today's view
+       shows the streak instead — the one habit number a one-day window can
+       still answer honestly. */
+    range === 'today'
+      ? { label: copy.streak, value: formatCount(activeStreak(snapshot.days, now)) }
+      : { label: copy.tiles[3], value: formatCount(totals.activeDays) },
+    { label: copy.tiles[4], value: hour === null ? EMPTY : formatHour(hour) },
     { label: copy.tiles[5], value: totals.topModel ?? EMPTY, small: true },
   ];
   return {
     tiles,
     heat: window.heat,
     futureFrom: window.futureFrom,
-    note: bookNote(totals.tokens, random, language),
+    today: window.futureFrom - 1,
   };
 }
 
@@ -200,7 +232,6 @@ export function buildModels(
   now: Date = new Date(),
   language: 'zh' | 'en' = 'zh',
 ): StatsModelsData {
-  const copy = STATS_COPY[language];
   const totals = snapshot.ranges[range];
   const start = rangeStart(range, now.getTime());
   const visible: readonly StatsModelTokens[] = totals.models.filter(([, tokens]) =>
@@ -232,16 +263,16 @@ export function buildModels(
   });
   const steps = tokenTicks(days.reduce((max, day) => Math.max(max, day.tokens), 0));
 
-  const io = new Map(snapshot.modelIO.map(([model, input, output]) => [model, { input, output }]));
-  const legend: LegendRow[] = visible.map(([model, tokens], at) => {
-    const counters = io.get(model) ?? { input: 0, output: 0 };
-    return {
-      model,
-      color: modelColor(at),
-      usage: `${copy.input} ${formatTokens(counters.input)} \u00B7 ${copy.output} ${formatTokens(counters.output)}`,
-      percent: `${((tokens / (totals.tokens || 1)) * 100).toFixed(1)}%`,
-    };
-  });
+  /* Every number in this view is the selected range's own: the legend prints
+     the tokens that range attributed to the model and its share of the range.
+     Lifetime in/out counters read the same under every range, which is exactly
+     the confusion a four-range card must not create. */
+  const legend: LegendRow[] = visible.map(([model, tokens], at) => ({
+    model,
+    color: modelColor(at),
+    usage: formatTokens(tokens),
+    percent: `${((tokens / (totals.tokens || 1)) * 100).toFixed(1)}%`,
+  }));
 
   return {
     ticks: steps.map(formatTokens),
@@ -257,24 +288,27 @@ export function buildModels(
  *
  * @param snapshot - the host's aggregate.
  * @param state - the selected tab and range.
- * @param random - stable draw for the footer's book choice.
  * @param now - the current instant (injectable for tests).
+ * @param language - copy language.
  * @returns the card data.
  */
 export function buildCardData(
   snapshot: StatsSnapshot,
   state: StatsViewState,
-  random: () => number,
   now: Date = new Date(),
   language: 'zh' | 'en' = 'zh',
 ): StatsCardData {
   const copy = STATS_COPY[language];
+  /* `today` has one day of history, so the daily chart has nothing to draw:
+     the card hides the view and always lands on the overview. */
+  const tab: StatsTabId = state.range === 'today' ? 'overview' : state.tab;
+  const tabs = tab === 'overview' && state.range === 'today' ? STATS_TABS.slice(0, 1) : STATS_TABS;
   return {
-    tab: state.tab,
-    tabs: STATS_TABS.map((option, index) => ({ ...option, label: copy.tabs[index]! })),
+    tab,
+    tabs: tabs.map((option, index) => ({ ...option, label: copy.tabs[index]! })),
     ranges: STATS_RANGE_OPTIONS.map((option, index) => ({ ...option, label: copy.ranges[index]! })),
     range: state.range,
-    overview: state.tab === 'overview' ? buildOverview(snapshot, state.range, random, now, language) : null,
-    models: state.tab === 'models' ? buildModels(snapshot, state.range, now, language) : null,
+    overview: tab === 'overview' ? buildOverview(snapshot, state.range, now, language) : null,
+    models: tab === 'models' ? buildModels(snapshot, state.range, now, language) : null,
   };
 }

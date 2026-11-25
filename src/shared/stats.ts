@@ -9,35 +9,44 @@
  * halves import this file, so the wire vocabulary lives here rather than in
  * either half.
  *
- * Since the card grew the reference's `Models` view and its `All`/`30d`/`7d`
- * switch, a session's summary has to answer two more questions: which model
- * produced which tokens on which day, and how many tokens arrived with each
- * model in total (the legend prints lifetime in/out counters, exactly as the
- * reference does). The per-session value therefore carries a model table plus
- * a sparse `date → model index → tokens` list; the index keeps that list small
- * enough to ride the session payloads it is published on.
+ * Since the card grew the reference's `Models` view and its four-range switch
+ * (`today`/`7d`/`30d`/`all`), a session's summary has to answer two more
+ * questions: which model produced which tokens on which day, and how many
+ * prompts arrived in each hour of each day (the card's peak hour is now the
+ * range's own peak, so a single all-time histogram is no longer enough). The
+ * per-session value therefore carries a model table plus a sparse
+ * `date → model index → tokens` list; the index keeps that list small enough
+ * to ride the session payloads it is published on. `dayHours` is the second
+ * sparse table: one row per `(day, hour)` that saw a human prompt.
  */
 
 /** Authenticated host route serving {@link StatsSnapshot}. */
 export const STATS_PATH = '/api/ccd-stats';
 
 /** Snapshot revision; a client that does not know the version ignores the body. */
-export const STATS_VERSION = 2;
+export const STATS_VERSION = 3;
 
 /** Days of history one snapshot ships; the card itself draws 26 weeks. */
 export const STATS_DAY_LIMIT = 366;
 
-/** The reference's three date ranges, in the order it draws them. */
-export const STATS_RANGES = ['all', '30d', '7d'] as const;
+/**
+ * The card's four ranges, in the order it draws them.
+ *
+ * `today` is this fork's addition: the card opens on today's numbers instead
+ * of a lifetime total, so the switch starts with the shortest window. Every
+ * total, the chart, the peak hour and the tiles follow the selection.
+ */
+export const STATS_RANGES = ['today', '7d', '30d', 'all'] as const;
 
-/** One of the reference's range switches. */
+/** One of the card's range switches. */
 export type StatsRangeId = (typeof STATS_RANGES)[number];
 
 /** Days each range covers, counting back from today; `all` has no cutoff. */
 export const STATS_RANGE_DAYS: Readonly<Record<StatsRangeId, number | null>> = {
-  all: null,
-  '30d': 30,
+  today: 1,
   '7d': 7,
+  '30d': 30,
+  all: null,
 };
 
 /** Local `YYYY-MM-DD` for one instant, the day key both halves bucket by. */
@@ -71,8 +80,8 @@ export function rangeStart(range: StatsRangeId, now: number): string | null {
 /** One local calendar day (`YYYY-MM-DD`) and its prompt count. */
 export type StatsDay = readonly [string, number];
 
-/** One local hour and its prompt count. */
-export type StatsHour = readonly [number, number];
+/** One local day's hour and its prompt count: `[date, hour, prompts]`. */
+export type StatsDayHour = readonly [string, number, number];
 
 /** One `provider/model` with its tokens: total, input, output. */
 export type StatsModelUsage = readonly [string, number, number, number];
@@ -85,9 +94,6 @@ export type StatsModelDay = readonly [string, number, number];
 
 /** One day of the whole library: local day, `provider/model`, tokens. */
 export type StatsModelDayRow = readonly [string, string, number];
-
-/** Lifetime input/output counters for one model, as the legend prints them. */
-export type StatsModelIO = readonly [string, number, number];
 
 /**
  * One session's contribution to the aggregate.
@@ -103,8 +109,13 @@ export interface StatsSessionUsage {
   readonly tokens: number;
   /** Per local day, sparse; only days with prompts appear. */
   readonly days: readonly StatsDay[];
-  /** Per local hour, sparse; only hours with prompts appear. */
-  readonly hours: readonly StatsHour[];
+  /**
+   * Per local day and hour, sparse; only hours with prompts appear.
+   *
+   * The card's peak hour is computed inside the selected range, so the fold
+   * has to keep the hour histogram split by day rather than flattened.
+   */
+  readonly dayHours: readonly StatsDayHour[];
   /** Per model, sparse and sorted by name; the day rows index into this list. */
   readonly models: readonly StatsModelUsage[];
   /** Per day and model, sparse, sorted by day then model index. */
@@ -136,17 +147,14 @@ export interface StatsSnapshot {
   /** Totals for each range switch; `all` also feeds the heatmap's own scale. */
   readonly ranges: StatsRanges;
   /**
-   * Busiest local hour over all time. The reference's tiles read this from its
-   * unfiltered statistics while every other tile is range-filtered, so the card
-   * does the same: switching range must not move `Peak hour`.
+   * Busiest local hour per range. `today` answers "which hour was busiest
+   * today"; the longer ranges answer the same question inside their window.
    */
-  readonly busyHour: number | null;
+  readonly busyHours: Readonly<Record<StatsRangeId, number | null>>;
   /** Local days and prompt counts, oldest first, capped at {@link STATS_DAY_LIMIT}. */
   readonly days: readonly StatsDay[];
   /** Tokens per day and model, oldest first, capped at {@link STATS_DAY_LIMIT} days. */
   readonly modelDays: readonly StatsModelDayRow[];
-  /** Lifetime input/output counters per model, for the legend's middle column. */
-  readonly modelIO: readonly StatsModelIO[];
   /** Sessions still being folded; the card polls faster while this is non-zero. */
   readonly pending: number;
   /** Sessions whose logs could not be read and are therefore missing from the totals. */
@@ -166,16 +174,23 @@ function sameRows(left: readonly (readonly (string | number)[])[], right: readon
 /** Projection wrappers can change identity while their effective usage stays the same. */
 export function sameStatsUsage(left: StatsSessionUsage | undefined, right: StatsSessionUsage): boolean {
   return left === right || (left !== undefined && left.prompts === right.prompts && left.tokens === right.tokens
-    && sameRows(left.days, right.days) && sameRows(left.hours, right.hours)
+    && sameRows(left.days, right.days) && sameRows(left.dayHours, right.dayHours)
     && sameRows(left.models, right.models) && sameRows(left.modelDays, right.modelDays));
+}
+
+/** Compare the four per-range peaks without building a second object. */
+function sameBusyHours(
+  left: Readonly<Record<StatsRangeId, number | null>>,
+  right: Readonly<Record<StatsRangeId, number | null>>,
+): boolean {
+  return STATS_RANGES.every(id => left[id] === right[id]);
 }
 
 /** Only values the card draws; transport timestamps and fold progress are excluded. */
 export function sameStatsDisplay(left: StatsSnapshot, right: StatsSnapshot): boolean {
   if (left === right) return true;
-  if (left.version !== right.version || left.busyHour !== right.busyHour
-    || !sameRows(left.days, right.days) || !sameRows(left.modelDays, right.modelDays)
-    || !sameRows(left.modelIO, right.modelIO)) return false;
+  if (left.version !== right.version || !sameBusyHours(left.busyHours, right.busyHours)
+    || !sameRows(left.days, right.days) || !sameRows(left.modelDays, right.modelDays)) return false;
   return STATS_RANGES.every(id => {
     const a = left.ranges[id], b = right.ranges[id];
     return a === b || (a.sessions === b.sessions && a.messages === b.messages && a.tokens === b.tokens
@@ -237,24 +252,6 @@ function readModelDays(value: unknown): readonly StatsModelDayRow[] {
   return rows;
 }
 
-/**
- * Read one `[model, in, out]` triple list.
- *
- * @param value - candidate list.
- * @returns the surviving triples.
- */
-function readModelIO(value: unknown): readonly StatsModelIO[] {
-  if (!Array.isArray(value)) return [];
-  const rows: StatsModelIO[] = [];
-  for (const entry of value) {
-    if (!Array.isArray(entry) || entry.length !== 3) continue;
-    const [model, input, output] = entry as [unknown, unknown, unknown];
-    if (typeof model !== 'string' || model === '' || !isCount(input) || !isCount(output)) continue;
-    rows.push([model, input, output] as const);
-  }
-  return rows;
-}
-
 /** An empty range, used for a body that is missing or unreadable. */
 function emptyRange(): StatsRangeTotals {
   return { sessions: 0, messages: 0, tokens: 0, activeDays: 0, topModel: null, models: [] };
@@ -292,6 +289,30 @@ function readRanges(value: unknown): StatsRanges {
 }
 
 /**
+ * Read the four per-range peaks.
+ *
+ * An absent or null entry is a range that saw no prompts (a fresh library, or
+ * a day that has not started); a present entry must be a real hour of the day.
+ *
+ * @param value - candidate object.
+ * @returns one peak per range, or null when an entry is not an hour.
+ */
+function readBusyHours(value: unknown): Record<StatsRangeId, number | null> | null {
+  const raw = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+  const peaks = {} as Record<StatsRangeId, number | null>;
+  for (const id of STATS_RANGES) {
+    const peak = raw[id];
+    if (peak === undefined || peak === null) {
+      peaks[id] = null;
+      continue;
+    }
+    if (!isCount(peak) || peak > 23) return null;
+    peaks[id] = peak;
+  }
+  return peaks;
+}
+
+/**
  * Read one snapshot from untrusted JSON.
  *
  * The browser half treats the host route as the one data source it does not
@@ -309,16 +330,15 @@ export function readStatsSnapshot(value: unknown): StatsSnapshot | null {
   const pending = raw['pending'];
   const missed = raw['missed'];
   const computedAt = raw['computedAt'];
-  const busyHour = raw['busyHour'];
   if (!isCount(pending) || !isCount(missed) || !isCount(computedAt)) return null;
-  if (busyHour !== null && (!isCount(busyHour) || busyHour > 23)) return null;
+  const busyHours = readBusyHours(raw['busyHours']);
+  if (busyHours === null) return null;
   return {
     version: STATS_VERSION,
     ranges: readRanges(raw['ranges']),
-    busyHour,
+    busyHours,
     days: readPairs(raw['days'], raw => (isDayKey(raw) ? raw : null)),
     modelDays: readModelDays(raw['modelDays']),
-    modelIO: readModelIO(raw['modelIO']),
     pending,
     missed,
     computedAt,

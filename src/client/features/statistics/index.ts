@@ -17,6 +17,6 @@ export const statisticsFeature: ImplementedFeature = {
     scope.add(environment.dom.mountStyles(statisticsCss));
     const source = createStatsSource({ logger: environment.logger, active: false });
     scope.add(() => source.dispose());
-    mountStatisticsCard(document, scope, environment.logger, source);
+    mountStatisticsCard(document, scope, environment.logger, source, environment.host.recentSessions);
   },
 };

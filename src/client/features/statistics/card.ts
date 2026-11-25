@@ -17,11 +17,14 @@
  * `theme/tokens.css`).
  */
 import type { StatsRangeId } from '../../../shared/stats.ts';
-import { formatCount, formatDayLabel, formatTokens } from './format.ts';
+import { formatCount, formatDayLabel, formatTokens, shortModel } from './format.ts';
 import { STATS_COPY } from './locales.ts';
 
-/** Marks the card container; the compatibility layer positions it. */
+/** Marks the card container; the group positions it. */
 export const CARD_ATTRIBUTE = 'data-ccd-stats-card';
+
+/** Marks the hero group that holds both cards; CSS positions this one node. */
+export const CARDS_ATTRIBUTE = 'data-ccd-hero-cards';
 
 /** Heatmap columns and rows. 26×7 = 182 days, as the reference draws it. */
 export const HEAT_COLUMNS = 26;
@@ -81,7 +84,7 @@ export interface ChartDay {
 export interface LegendRow {
   readonly model: string;
   readonly color: string;
-  /** `40.4M in · 3.6M out`, from the lifetime counters. */
+  /** This range's tokens for the model, compact (`40.4M`). */
   readonly usage: string;
   /** Share of the range's tokens, one decimal place. */
   readonly percent: string;
@@ -94,8 +97,8 @@ export interface StatsOverviewData {
   readonly heat: readonly HeatCell[];
   /** First index drawn after today; those cells stay transparent. */
   readonly futureFrom: number;
-  /** Footer sentence, or null when the reference would draw none. */
-  readonly note: string | null;
+  /** Index of today's cell, outlined so the `today` range has an anchor. */
+  readonly today: number;
 }
 
 /** Everything the `Models` view draws. */
@@ -191,7 +194,7 @@ function createSegments<T extends string>(
   return group;
 }
 
-/** The `Overview` body: tiles, heatmap and the footer sentence. */
+/** The `Overview` body: tiles and the heatmap. */
 function createOverview(document: Document, data: StatsOverviewData, tips: Map<HTMLElement, Tip>, language: 'zh' | 'en'): HTMLElement {
   const body = document.createElement('div');
   body.className = 'ccd-stats-overview';
@@ -207,7 +210,10 @@ function createOverview(document: Document, data: StatsOverviewData, tips: Map<H
     label.title = tile.label;
     const value = document.createElement('span');
     value.className = tile.small === true ? 'ccd-stats-value ccd-stats-value-small' : 'ccd-stats-value';
-    value.textContent = tile.value;
+    /* A model id prints without its provider route; the full route stays in
+       `title`, where a same-named model from another provider is still
+       distinguishable. Numbers have no route, so the two spellings coincide. */
+    value.textContent = tile.small === true ? shortModel(tile.value) : tile.value;
     value.title = tile.value;
     cell.append(label, value);
     tiles.append(cell);
@@ -226,6 +232,7 @@ function createOverview(document: Document, data: StatsOverviewData, tips: Map<H
       cell.className = 'ccd-stats-heat-cell';
       const entry = data.heat[index];
       cell.dataset.level = entry === undefined || entry.level === null ? 'future' : String(entry.level);
+      if (index === data.today) cell.dataset.today = 'true';
       if (entry !== undefined && entry.level !== null) {
         tips.set(cell, { title: heatTip(entry.date, entry.count, language), rows: [] });
       }
@@ -235,12 +242,6 @@ function createOverview(document: Document, data: StatsOverviewData, tips: Map<H
   }
 
   body.append(tiles, heat);
-  if (data.note !== null) {
-    const note = document.createElement('p');
-    note.className = 'ccd-stats-note';
-    note.textContent = data.note;
-    body.append(note);
-  }
   return body;
 }
 
@@ -281,7 +282,7 @@ function createModels(document: Document, data: StatsModelsData, tips: Map<HTMLE
       title: formatDayLabel(day.date, language),
       rows: day.segments.map(segment => ({
         color: segment.color,
-        text: `${segment.model}: ${formatTokens(segment.tokens)}`,
+        text: `${shortModel(segment.model)}: ${formatTokens(segment.tokens)}`,
       })),
     });
     plot.append(column);
@@ -327,7 +328,7 @@ function createModels(document: Document, data: StatsModelsData, tips: Map<HTMLE
     swatch.setAttribute('aria-hidden', 'true');
     const name = document.createElement('span');
     name.className = 'ccd-stats-legend-name';
-    name.textContent = row.model;
+    name.textContent = shortModel(row.model);
     name.title = row.model;
     const usage = document.createElement('span');
     usage.className = 'ccd-stats-legend-usage';
@@ -361,6 +362,27 @@ function createModels(document: Document, data: StatsModelsData, tips: Map<HTMLE
 }
 
 /**
+ * One static view name, drawn in the segmented group's own box.
+ *
+ * The `today` range hides the `Usage` view, and a segmented control holding a
+ * single choice is a control that cannot choose anything; the group therefore
+ * collapses to the name of the one view still available. It keeps the pill so
+ * the header reads the same in both states.
+ */
+function createStaticSegment(document: Document, label: string, text: string): HTMLElement {
+  const group = document.createElement('div');
+  group.className = 'ccd-stats-seg ccd-stats-seg-static';
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', label);
+  const name = document.createElement('span');
+  name.className = 'ccd-stats-seg-btn';
+  name.dataset['active'] = 'true';
+  name.textContent = text;
+  group.append(name);
+  return group;
+}
+
+/**
  * Build the card.
  *
  * @param document - renderer document the card belongs to.
@@ -380,7 +402,9 @@ export function createStatsCard(
 
   const header = document.createElement('div');
   header.className = 'ccd-stats-header';
-  const tabs = createSegments(document, copy.view, data.tabs, data.tab, handlers.onTab);
+  const tabs = data.tabs.length > 1
+    ? createSegments(document, copy.view, data.tabs, data.tab, handlers.onTab)
+    : createStaticSegment(document, copy.view, data.tabs[0]?.label ?? '');
   const spacer = document.createElement('span');
   spacer.className = 'ccd-stats-spacer';
   const ranges = createSegments(document, copy.range, data.ranges, data.range, handlers.onRange);

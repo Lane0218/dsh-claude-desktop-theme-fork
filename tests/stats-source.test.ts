@@ -8,7 +8,10 @@ function deferred<T>() {
   return { promise, resolve };
 }
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
-const body = (computedAt: number) => ({ version: 2, computedAt, pending: 0, missed: 0, busyHour: null });
+const body = (computedAt: number) => ({
+  version: 3, computedAt, pending: 0, missed: 0,
+  busyHours: { today: null, '7d': null, '30d': null, all: null },
+});
 const response = (computedAt: number) => new Response(JSON.stringify(body(computedAt)));
 
 /** Fake transport and clock: no sleeps, network or renderer needed. */

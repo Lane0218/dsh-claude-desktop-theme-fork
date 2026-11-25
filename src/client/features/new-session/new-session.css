@@ -11,7 +11,6 @@
 html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] {
   --ccd-hero-seat-position: static;
   --ccd-hero-stats-position: absolute;
-  --ccd-hero-stats-margin: 0;
 }
 
 html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .ST7X_W_scrollBody {
@@ -37,7 +36,14 @@ html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .bocITq_root {
   translate: -50% 0;
 }
 
-/* Only the brand mark, the title type and the preview badge are restyled. */
+/* The host stamps the greeting with a "preview" badge; the reference greeting
+   carries the mark and the title only, so the badge is hidden rather than
+   removed (the React node stays in place for instant restoration). */
+html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .bocITq_previewBadge {
+  display: none;
+}
+
+/* Only the brand mark and the title type are restyled. */
 html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .bocITq_fish {
   width: 26px;
   height: 20px;
@@ -57,15 +63,6 @@ html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .bocITq_titleGro
   font-weight: 400;
   line-height: 26px;
   letter-spacing: -0.01em;
-}
-
-html[data-dsh-ccd-style="true"] .ST7X_W_root[data-phase="hero"] .bocITq_previewBadge {
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 6px;
-  color: var(--ccd-text-secondary);
-  font-size: 11px;
-  line-height: 20px;
 }
 
 /* Keep the composer off the window edge exactly as the reference does: the

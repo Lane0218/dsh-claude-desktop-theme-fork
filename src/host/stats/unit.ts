@@ -10,7 +10,7 @@ import type { SessionEvent, SessionHeader, SessionLogOffset } from '@deepseek-ai
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection';
 import type { ZodType } from 'zod';
 import type {
-  StatsHour, StatsModelDay, StatsModelUsage, StatsSessionUsage,
+  StatsDayHour, StatsModelDay, StatsModelUsage, StatsSessionUsage,
 } from '../../shared/stats.ts';
 import { localDayKey } from '../../shared/stats.ts';
 
@@ -27,7 +27,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 export const USAGE_KEY = 'ccdUsage';
 
 /** Persisted-cache invalidation version for {@link UsageState}. */
-export const USAGE_STATE_VERSION = 2;
+export const USAGE_STATE_VERSION = 3;
 
 /** Bucket for usage that arrived before the session logged its first header. */
 export const UNKNOWN_MODEL = 'unknown';
@@ -55,8 +55,15 @@ export interface UsageState {
   readonly tokens: number;
   /** Local day key → prompts. */
   readonly days: Readonly<Record<string, number>>;
-  /** 24 local-hour buckets → prompts. */
-  readonly hours: readonly number[];
+  /**
+   * Local day key → local hour (`"0"`–`"23"`) → prompts.
+   *
+   * Sparse like every other table here: a day lists only the hours that saw a
+   * prompt, so the state stays small even after a year of use. The card's peak
+   * hour is computed inside the selected range, which is why the hours cannot
+   * stay flattened into one 24-slot histogram of the whole session.
+   */
+  readonly dayHours: Readonly<Record<string, Readonly<Record<string, number>>>>;
   /** `provider/model` → counters. */
   readonly models: Readonly<Record<string, ModelUsage>>;
   /** Local day key → `provider/model` → tokens produced that day. */
@@ -100,7 +107,7 @@ export function initUsageState(_header: SessionHeader, inheritedEventCount: Sess
     prompts: 0,
     tokens: 0,
     days: {},
-    hours: new Array<number>(HOURS_PER_DAY).fill(0),
+    dayHours: {},
     models: {},
     modelDays: {},
     model: null,
@@ -123,14 +130,13 @@ export function applyUsageEvent(state: UsageState, event: SessionEvent): UsageSt
   if (event.seq < state.seedSeq) return state;
   if (event.type === 'user/message') {
     if (event.data.source.kind !== 'user') return state;
-    const hour = new Date(event.time).getHours();
-    const hours = state.hours.slice();
-    hours[hour] = (hours[hour] ?? 0) + 1;
+    const day = localDayKey(event.time);
+    const hour = String(new Date(event.time).getHours());
     return {
       ...state,
       prompts: state.prompts + 1,
-      days: bumped(state.days, localDayKey(event.time), 1),
-      hours,
+      days: bumped(state.days, day, 1),
+      dayHours: { ...state.dayHours, [day]: bumped(state.dayHours[day] ?? {}, hour, 1) },
     };
   }
   if (event.type === 'assistant/message') {
@@ -173,14 +179,21 @@ function pairs(record: Readonly<Record<string, number>>): readonly (readonly [st
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
-/** Sparse hour buckets, ascending. */
-function hourPairs(hours: readonly number[]): readonly StatsHour[] {
-  const sparse: StatsHour[] = [];
-  for (let hour = 0; hour < hours.length; hour += 1) {
-    const count = hours[hour] ?? 0;
-    if (count > 0) sparse.push([hour, count]);
+/** Sparse `(day, hour)` rows, ascending by day and then by hour. */
+function dayHourRows(dayHours: Readonly<Record<string, Readonly<Record<string, number>>>>): readonly StatsDayHour[] {
+  const rows: StatsDayHour[] = [];
+  for (const day of Object.keys(dayHours).sort()) {
+    const perHour = dayHours[day] ?? {};
+    const hours = Object.keys(perHour)
+      .map(hour => Number(hour))
+      .filter(hour => Number.isInteger(hour) && hour >= 0 && hour < HOURS_PER_DAY)
+      .sort((left, right) => left - right);
+    for (const hour of hours) {
+      const count = perHour[String(hour)] ?? 0;
+      if (count > 0) rows.push([day, hour, count] as const);
+    }
   }
-  return sparse;
+  return rows;
 }
 
 /** The model table, sorted by name; day rows index into this list. */
@@ -235,7 +248,7 @@ export function viewUsage(state: UsageState): StatsSessionUsage {
     prompts: state.prompts,
     tokens: state.tokens,
     days: pairs(state.days),
-    hours: hourPairs(state.hours),
+    dayHours: dayHourRows(state.dayHours),
     models,
     modelDays: modelDayRows(state.modelDays, models),
   };
@@ -293,6 +306,23 @@ function readModelDays(value: unknown): Record<string, Record<string, number>> {
   return days;
 }
 
+/** Read `{ day: { hour: count } }`, dropping hours that are not a real hour. */
+function readDayHours(value: unknown): Record<string, Record<string, number>> {
+  const days: Record<string, Record<string, number>> = {};
+  if (typeof value !== 'object' || value === null) return days;
+  for (const [day, entry] of Object.entries(value as Record<string, unknown>)) {
+    const perHour = readCounts(entry);
+    const kept: Record<string, number> = {};
+    for (const [hour, count] of Object.entries(perHour)) {
+      const at = Number(hour);
+      if (!Number.isInteger(at) || at < 0 || at >= HOURS_PER_DAY) continue;
+      kept[String(at)] = count;
+    }
+    if (Object.keys(kept).length > 0) days[day] = kept;
+  }
+  return days;
+}
+
 /**
  * Read one persisted state row.
  *
@@ -305,16 +335,13 @@ function readModelDays(value: unknown): Record<string, Record<string, number>> {
  */
 export function readUsageState(value: unknown): UsageState {
   const raw = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
-  const hours = new Array<number>(HOURS_PER_DAY).fill(0);
-  const rawHours = Array.isArray(raw['hours']) ? raw['hours'] : [];
-  for (let hour = 0; hour < HOURS_PER_DAY; hour += 1) hours[hour] = count(rawHours[hour]);
   const model = raw['model'];
   return {
     seedSeq: count(raw['seedSeq']),
     prompts: count(raw['prompts']),
     tokens: count(raw['tokens']),
     days: readCounts(raw['days']),
-    hours,
+    dayHours: readDayHours(raw['dayHours']),
     models: readModels(raw['models']),
     modelDays: readModelDays(raw['modelDays']),
     model: typeof model === 'string' && model !== '' ? model : null,
@@ -367,16 +394,25 @@ export function readUsageView(value: unknown): StatsSessionUsage {
       modelDays.push([day, at, counted] as const);
     }
   }
+  const dayHours: StatsDayHour[] = [];
+  if (Array.isArray(raw['dayHours'])) {
+    for (const entry of raw['dayHours']) {
+      if (!Array.isArray(entry) || entry.length !== 3) continue;
+      const [day, hour, prompts] = entry as [unknown, unknown, unknown];
+      if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+      const at = typeof hour === 'number' ? hour : Number(hour);
+      if (!Number.isInteger(at) || at < 0 || at >= HOURS_PER_DAY) continue;
+      const counted = count(prompts);
+      if (counted === 0) continue;
+      dayHours.push([day, at, counted] as const);
+    }
+  }
   return {
     prompts: count(raw['prompts']),
     tokens: count(raw['tokens']),
     days: readPairList(raw['days'], rawKey =>
       (typeof rawKey === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawKey) ? rawKey : null)),
-    /* Hour keys travel as numbers; a string is accepted for a hand-written row. */
-    hours: readPairList(raw['hours'], rawKey => {
-      const hour = typeof rawKey === 'number' ? rawKey : Number(rawKey);
-      return Number.isInteger(hour) && hour >= 0 && hour < HOURS_PER_DAY ? hour : null;
-    }),
+    dayHours,
     models,
     modelDays,
   };

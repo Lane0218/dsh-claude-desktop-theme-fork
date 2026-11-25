@@ -246,6 +246,35 @@ export interface SidebarSessionsPort {
   subscribe(listener: () => void): Disposer;
 }
 
+/** One row of the hero's continue card. */
+export interface RecentSession {
+  readonly id: string;
+  /** Durable title, or the host's own fallback label. */
+  readonly title: string;
+  /** Owning workspace's name, or null when the catalog has no owner for it. */
+  readonly workspace: string | null;
+  /** Last durable update, epoch ms; the list is newest first. */
+  readonly updatedAt: number;
+  /** Whether the host reports an agent running in it. */
+  readonly running: boolean;
+}
+
+/**
+ * The recent sessions the hero lists, read from the host's own catalogs.
+ *
+ * Everything is a snapshot read of `ctx.sessions.list` plus `ctx.workspaces`:
+ * no request, no poll, no second copy. Navigation goes through
+ * `uiWorkspace.openSession`, so a row opens a session exactly as the sidebar
+ * does.
+ */
+export interface RecentSessionsPort {
+  /** Newest first, already filtered and capped; identity changes only with a list. */
+  get(): readonly RecentSession[];
+  subscribe(listener: () => void): Disposer;
+  /** Open one session through the host's navigation. */
+  open(id: string): void;
+}
+
 /**
  * One session's context readings, as the client session list holds them.
  *
@@ -447,6 +476,8 @@ export interface HostServices {
    */
   readonly blankSessions: BlankSessionsPort | null;
   readonly sidebarSessions: SidebarSessionsPort | null;
+  /** The hero's continue card, or null on a build that publishes no session list. */
+  readonly recentSessions: RecentSessionsPort | null;
   /**
    * The host's context projections, or null on a build that does not publish
    * the session list; a null port leaves the ring's own panel in charge.

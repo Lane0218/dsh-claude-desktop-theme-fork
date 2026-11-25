@@ -46,9 +46,9 @@ test('a fresh fold is empty and remembers its inherited prefix', () => {
   assert.equal(state.prompts, 0);
   assert.equal(state.tokens, 0);
   assert.deepEqual(state.days, {});
+  assert.deepEqual(state.dayHours, {});
   assert.deepEqual(state.models, {});
   assert.deepEqual(state.modelDays, {});
-  assert.equal(state.hours.length, 24);
   assert.equal(state.model, null);
 });
 
@@ -62,10 +62,10 @@ test('only human prompts count, bucketed by local day and hour', () => {
   ]);
   assert.equal(state.prompts, 3);
   assert.deepEqual(state.days, { '2026-09-30': 2, '2026-09-29': 1 });
-  assert.equal(state.hours[11], 1);
-  assert.equal(state.hours[23], 1);
-  assert.equal(state.hours[9], 1);
-  assert.equal(state.hours[12], 0);
+  assert.deepEqual(state.dayHours, {
+    '2026-09-30': { '11': 1, '23': 1 },
+    '2026-09-29': { '9': 1 },
+  });
 });
 
 test('the fork-inherited prefix never counts as this session', () => {
@@ -140,7 +140,7 @@ test('the wire view is sparse, sorted and stable for one state', () => {
   assert.equal(view.prompts, 2);
   assert.equal(view.tokens, 3);
   assert.deepEqual(view.days, [['2026-09-30', 2]]);
-  assert.deepEqual(view.hours, [[9, 1], [11, 1]]);
+  assert.deepEqual(view.dayHours, [['2026-09-30', 9, 1], ['2026-09-30', 11, 1]]);
   assert.deepEqual(view.models, [['opencode-go/deepseek-v4.1-flash', 3, 1, 2]]);
   /* The day rows point at the model table instead of repeating its name. */
   assert.deepEqual(view.modelDays, [['2026-09-30', 0, 3]]);
@@ -171,7 +171,7 @@ test('a persisted state row is read leniently', () => {
     prompts: 4,
     tokens: 90,
     days: { '2026-09-30': 2, bad: 'x' },
-    hours: [0, 5],
+    dayHours: { '2026-09-30': { '5': 5, '99': 2 }, broken: {} },
     models: { 'p/m': 90, 'q/n': { t: 10, i: 4, o: 6 }, 'r/o': { t: 0, i: 9, o: 9 } },
     modelDays: { '2026-09-30': { 'p/m': 90, 'q/n': 'x' }, empty: {} },
     model: 'p/m',
@@ -180,8 +180,8 @@ test('a persisted state row is read leniently', () => {
   assert.equal(state.prompts, 4);
   assert.equal(state.tokens, 90);
   assert.deepEqual(state.days, { '2026-09-30': 2 });
-  assert.equal(state.hours.length, 24);
-  assert.equal(state.hours[1], 5);
+  /* An hour that is not an hour of the day is dropped with its day. */
+  assert.deepEqual(state.dayHours, { '2026-09-30': { '5': 5 } });
   assert.deepEqual(state.models, {
     'p/m': { t: 90, i: 0, o: 0 },
     'q/n': { t: 10, i: 4, o: 6 },
@@ -194,7 +194,7 @@ test('a persisted state row is read leniently', () => {
   assert.equal(junk.prompts, 0);
   assert.equal(junk.model, null);
   assert.deepEqual(readUsageView(null), {
-    prompts: 0, tokens: 0, days: [], hours: [], models: [], modelDays: [],
+    prompts: 0, tokens: 0, days: [], dayHours: [], models: [], modelDays: [],
   });
 });
 
@@ -203,12 +203,12 @@ test('a wire view row drops malformed entries', () => {
     prompts: 2,
     tokens: 10,
     days: [['2026-09-30', 2], ['yesterday', 3], ['2026-09-29', 0]],
-    hours: [[11, 2], [24, 1], ['x', 1]],
+    dayHours: [['2026-09-30', 11, 2], ['2026-09-30', 24, 1], ['2026-09-30', 12, 0], ['nope', 3, 1]],
     models: [['p/m', 10, 4, 6], ['', 4, 0, 0], ['q/n', 0, 1, 1]],
     modelDays: [['2026-09-30', 0, 7], ['2026-09-30', 9, 7], ['nope', 0, 7], ['2026-09-29', 0, 0]],
   });
   assert.deepEqual(view.days, [['2026-09-30', 2]]);
-  assert.deepEqual(view.hours, [[11, 2]]);
+  assert.deepEqual(view.dayHours, [['2026-09-30', 11, 2]]);
   assert.deepEqual(view.models, [['p/m', 10, 4, 6]]);
   assert.deepEqual(view.modelDays, [['2026-09-30', 0, 7]]);
 });

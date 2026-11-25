@@ -8,6 +8,7 @@ import type {
 import { readContextView } from '../../shared/context.ts';
 import { TARGET_DSH_VERSION } from '../../shared/identity.ts';
 import { blankSessionIds } from './blank-session-rows.ts';
+import { createRecentSessionsPort } from './recent-sessions.ts';
 
 /**
  * `ctx.configForms` is provided by the DSH settings layer
@@ -227,6 +228,7 @@ export function createHostServices(ctx: Context): HostServices {
     themePreference: createThemePreferencePort(ctx),
     blankSessions: resolveBlankSessions(ctx),
     sidebarSessions: createSidebarSessionsPort(ctx),
+    recentSessions: createRecentSessionsPort(ctx),
     contextProjections: createContextProjections(ctx),
     configForms: resolveConfigForms(ctx),
     workspace: {

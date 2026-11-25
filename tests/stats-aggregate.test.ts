@@ -7,7 +7,7 @@ import { aggregateUsage } from '../src/host/stats/aggregate.ts';
 import { UNKNOWN_MODEL } from '../src/host/stats/unit.ts';
 
 function usage(overrides: Partial<StatsSessionUsage> = {}): StatsSessionUsage {
-  return { prompts: 0, tokens: 0, days: [], hours: [], models: [], modelDays: [], ...overrides };
+  return { prompts: 0, tokens: 0, days: [], dayHours: [], models: [], modelDays: [], ...overrides };
 }
 
 /** Noon on a known local day: 2026-09-30, so `30d` starts 2026-09-01. */
@@ -26,10 +26,9 @@ test('an empty corpus aggregates to an empty snapshot', () => {
       sessions: 0, messages: 0, tokens: 0, activeDays: 0, topModel: null, models: [],
     });
   }
-  assert.equal(snapshot.busyHour, null);
+  for (const range of STATS_RANGES) assert.equal(snapshot.busyHours[range], null);
   assert.deepEqual(snapshot.days, []);
   assert.deepEqual(snapshot.modelDays, []);
-  assert.deepEqual(snapshot.modelIO, []);
   assert.equal(snapshot.computedAt, OPTIONS.now);
 });
 
@@ -48,6 +47,7 @@ test('range bounds count back from today inclusive', () => {
   assert.equal(rangeStart('all', NOW), null);
   assert.equal(rangeStart('30d', NOW), '2026-09-01');
   assert.equal(rangeStart('7d', NOW), '2026-09-24');
+  assert.equal(rangeStart('today', NOW), '2026-09-30');
 });
 
 test('each range totals only the days inside it', () => {
@@ -129,21 +129,29 @@ test('days merge across sessions, count every active day, and ship the newest on
   assert.equal(snapshot.modelDays.length, 364);
 });
 
-test('the busiest hour wins, ties go to the earliest hour, and the range never moves it', () => {
-  assert.equal(aggregateUsage([
-    usage({ prompts: 3, hours: [[11, 1], [3, 4]] }),
-  ], OPTIONS).busyHour, 3);
-  assert.equal(aggregateUsage([
-    usage({ prompts: 2, hours: [[11, 1]] }),
-    usage({ prompts: 2, hours: [[9, 1]] }),
-  ], OPTIONS).busyHour, 9);
-  assert.equal(aggregateUsage([usage({ tokens: 5 })], OPTIONS).busyHour, null);
-  const old = aggregateUsage([
-    usage({ prompts: 4, tokens: 1, hours: [[3, 9]], days: [['2020-01-01', 4]] }),
-    usage({ prompts: 1, tokens: 1, hours: [[22, 1]], days: [['2026-09-30', 1]] }),
+test('the busiest hour is per range, ties go to the earliest hour', () => {
+  const single = aggregateUsage([
+    usage({ prompts: 3, dayHours: [['2026-09-30', 11, 1], ['2026-09-30', 3, 4]] }),
   ], OPTIONS);
-  assert.equal(old.busyHour, 3);
-  assert.equal(old.ranges['7d'].messages, 1);
+  assert.equal(single.busyHours.all, 3);
+  assert.equal(single.busyHours.today, 3);
+
+  const tied = aggregateUsage([
+    usage({ prompts: 2, dayHours: [['2026-09-30', 11, 1]] }),
+    usage({ prompts: 2, dayHours: [['2026-09-30', 9, 1]] }),
+  ], OPTIONS);
+  assert.equal(tied.busyHours.all, 9);
+  assert.equal(aggregateUsage([usage({ tokens: 5 })], OPTIONS).busyHours.all, null);
+
+  /* The all-time peak sits in 2020; today's own peak is in 2026. `today` must
+     answer for today, and the longer ranges for their own windows. */
+  const mixed = aggregateUsage([
+    usage({ prompts: 4, tokens: 1, dayHours: [['2020-01-01', 3, 9]], days: [['2020-01-01', 4]] }),
+    usage({ prompts: 1, tokens: 1, dayHours: [['2026-09-30', 22, 1]], days: [['2026-09-30', 1]] }),
+  ], OPTIONS);
+  assert.equal(mixed.busyHours.all, 3);
+  assert.equal(mixed.busyHours.today, 22);
+  assert.equal(mixed.ranges['7d'].messages, 1);
 });
 
 test('the favourite model ignores the unknown bucket and breaks ties by name', () => {
@@ -169,7 +177,6 @@ test('unknown-model tokens stay in the totals but out of the model list', () => 
   ], OPTIONS);
   assert.equal(snapshot.ranges.all.tokens, 100);
   assert.deepEqual(snapshot.ranges.all.models, [['a/one', 70]]);
-  assert.deepEqual(snapshot.modelIO, [['a/one', 0, 0]]);
   assert.deepEqual(snapshot.modelDays, [['2026-09-30', 'a/one', 70], ['2026-09-30', UNKNOWN_MODEL, 30]]);
 });
 
@@ -186,7 +193,6 @@ test('the legend counters are lifetime sums, per model', () => {
       modelDays: [['2026-09-29', 0, 5]],
     }),
   ], OPTIONS);
-  assert.deepEqual(snapshot.modelIO, [['a/one', 6, 9]]);
   assert.deepEqual(snapshot.ranges['7d'].models, [['a/one', 15]]);
 });
 
@@ -207,5 +213,5 @@ test('progress counters pass through untouched', () => {
   assert.equal(snapshot.pending, 7);
   assert.equal(snapshot.missed, 2);
   assert.equal(snapshot.version, STATS_VERSION);
-  assert.equal(STATS_VERSION, 2);
+  assert.equal(STATS_VERSION, 3);
 });

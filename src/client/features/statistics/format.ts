@@ -66,3 +66,20 @@ export function formatHour(hour: number): string {
 export function formatDayLabel(date: string, language: 'zh' | 'en' = 'zh'): string {
   return DAY[language].format(new Date(`${date}T00:00:00Z`));
 }
+
+/**
+ * The model name without its provider route.
+ *
+ * The card has no room for `deepseek-account/deepseek-v4.1-flash`; the tile,
+ * the legend and the chart tooltip print the model id alone, while the full
+ * route stays in the element's `title`. A route that would leave nothing
+ * behind is kept whole rather than shown as an empty label.
+ *
+ * @param model - `provider/model`, as the host records it.
+ * @returns the display name.
+ */
+export function shortModel(model: string): string {
+  const cut = model.indexOf('/');
+  if (cut <= 0 || cut === model.length - 1) return model;
+  return model.slice(cut + 1);
+}

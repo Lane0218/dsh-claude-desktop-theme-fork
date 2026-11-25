@@ -27,7 +27,7 @@ function fixture(count: number) {
   const cleanups: (() => unknown)[] = [];
   const usage = (): StatsSessionUsage => ({
     get prompts() { aggregateReads++; return 1; },
-    tokens: 10, days: [['2026-10-18', 1]], hours: [[12, 1]],
+    tokens: 10, days: [['2026-10-18', 1]], dayHours: [['2026-10-18', 12, 1]],
     models: [['provider/model', 10, 7, 3]], modelDays: [['2026-10-18', 0, 10]],
   });
   const services: Record<string, unknown> = {
@@ -171,7 +171,7 @@ test('unchanged polls reuse totals and timestamp, including equivalent projectio
 test('live usage changes refresh totals while equal replacement views do not', async t => {
   t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 9, 26, 12).getTime() });
   const f = fixture(1);
-  const value: StatsSessionUsage = { prompts: 1, tokens: 10, days: [['2026-10-26', 1]], hours: [[12, 1]],
+  const value: StatsSessionUsage = { prompts: 1, tokens: 10, days: [['2026-10-26', 1]], dayHours: [['2026-10-26', 12, 1]],
     models: [['provider/model', 10, 7, 3]], modelDays: [['2026-10-26', 0, 10]] };
   try {
     f.setLive('0', value);
@@ -179,10 +179,9 @@ test('live usage changes refresh totals while equal replacement views do not', a
     t.mock.timers.tick(1000);
     f.setLive('0', structuredClone(value));
     assert.deepEqual(await f.request(), first);
-    f.setLive('0', { ...value, hours: [[13, 1]], models: [['provider/model', 10, 6, 4]] });
+    f.setLive('0', { ...value, dayHours: [['2026-10-26', 13, 1]], models: [['provider/model', 10, 6, 4]] });
     const changed = await f.request();
-    assert.equal(changed.busyHour, 13);
-    assert.deepEqual(changed.modelIO, [['provider/model', 6, 4]]);
+    assert.equal(changed.busyHours.all, 13);
     assert.deepEqual(f.opened, [], 'live reads never open historical logs');
   } finally { f.dispose(); }
 });
@@ -212,7 +211,7 @@ test('midnight invalidates rolling ranges without any projection change', async 
   t.mock.timers.enable({ apis: ['Date'], now: at });
   const f = fixture(1);
   try {
-    f.cache('0', { prompts: 1, tokens: 10, days: [['2026-10-20', 1]], hours: [[12, 1]],
+    f.cache('0', { prompts: 1, tokens: 10, days: [['2026-10-20', 1]], dayHours: [['2026-10-20', 12, 1]],
       models: [['provider/model', 10, 7, 3]], modelDays: [['2026-10-20', 0, 10]] });
     const first = await f.request();
     assert.equal(first.ranges['7d'].tokens, 10);

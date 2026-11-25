@@ -66,8 +66,9 @@ const bundle = await build({ stdin: { resolveDir: root, loader: 'tsx', contents:
     }
     if(kind==='statistics'){
       const totals={sessions:1000,messages:10000,tokens:1000000,activeDays:182,topModel:'demo',models:[['demo',1000000]]};
-      const current={version:2,ranges:{all:totals,'30d':totals,'7d':totals},busyHour:10,
-        days:[],modelDays:[],modelIO:[['demo',800000,200000]],pending:0,missed:0,computedAt:1};
+      const current={version:3,ranges:{today:totals,'7d':totals,'30d':totals,all:totals},
+        busyHours:{today:10,'7d':10,'30d':10,all:10},
+        days:[],modelDays:[],pending:0,missed:0,computedAt:1};
       const subs=new Set();
       const source={current,subscribe:l=>{subs.add(l);return()=>subs.delete(l);},setActive(){},dispose(){}};
       window.updateStats=()=>subs.forEach(l=>l({...current,computedAt:2}));
@@ -181,16 +182,23 @@ test('effort language changes update the open panel and help without changing th
 test('statistics language changes preserve tabs and range and translate all card copy', options, async () => fixture(async page => {
   await page.evaluate(`document.querySelector('#root').innerHTML='<div data-phase="hero"><div class="ST7X_W_composerStack ST7X_W_composerHero"><div class="bocITq_root">Hello</div></div></div>';
     measure('statistics:locale-mount',()=>mount('statistics'),()=>!!document.querySelector('[data-ccd-stats-card]'))`);
-  await page.evaluate("measure('statistics:locale-models',()=>document.querySelector('[data-option=models]').click(),()=>!!document.querySelector('.ccd-stats-models'))");
+  /* The card opens on `today`, where the daily chart has nothing to draw: the
+     view switch collapses to its name and only the range row is a control. */
+  assert.equal(await page.evaluate('document.querySelectorAll(".ccd-stats-seg-static").length'), 1);
+  assert.equal(await page.evaluate('document.querySelectorAll(".ccd-stats-seg-btn[data-option]").length'), 4);
+  assert.equal(await page.evaluate('document.querySelector(\'[data-option="today"]\').getAttribute("aria-pressed")'), 'true');
   await page.evaluate("measure('statistics:locale-range',()=>document.querySelector('[data-option=\"7d\"]').click())");
+  await page.evaluate("measure('statistics:locale-models',()=>document.querySelector('[data-option=models]').click(),()=>!!document.querySelector('.ccd-stats-models'))");
   await page.evaluate("measure('statistics:locale-en',()=>document.documentElement.lang='en-US',()=>!!document.querySelector('[aria-label=\"Daily token usage by model\"]'))");
   assert.equal(await page.evaluate('document.querySelector("[data-option=models]").getAttribute("aria-pressed")'),'true');
   assert.equal(await page.evaluate('document.querySelector(\'[data-option="7d"]\').getAttribute("aria-pressed")'),'true');
-  assert.equal(await page.evaluate('document.querySelector(".ccd-stats-legend-usage").textContent'),'Input 800k · Output 200k');
+  assert.equal(await page.evaluate('document.querySelector(".ccd-stats-legend-usage").textContent'),'1M');
   await page.evaluate("measure('statistics:locale-overview',()=>document.querySelector('[data-option=overview]').click(),()=>!!document.querySelector('.ccd-stats-overview'))");
   const labels=await page.evaluate('[...document.querySelectorAll(".ccd-stats-label")].map(e=>e.textContent)');
   assert.deepEqual(labels,['Sessions','Messages','Total tokens','Active days','Peak hour','Favorite model']);
-  assert.match(await page.evaluate('document.querySelector(".ccd-stats-note").textContent'),/^You've used about /);
+  /* The footer sentence is gone in every range, so the overview ends at the
+     heatmap and no card height depends on how much was used. */
+  assert.equal(await page.evaluate('document.querySelector(".ccd-stats-note")'),null);
   await page.evaluate("measure('statistics:locale-zh',()=>document.documentElement.lang='zh-CN',()=>!!document.querySelector('[aria-label=\"每日活跃热力图\"]'))");
   assert.equal(await page.evaluate('document.querySelector(".ccd-stats-label").textContent'),'会话数');
   assert.equal(await page.evaluate('document.querySelector(\'[data-option="7d"]\').getAttribute("aria-pressed")'),'true');
@@ -246,8 +254,8 @@ test('hero ripple and statistics respond to phase changes, tabs, ranges and snap
   assert.equal(await page.evaluate('previousSpaceCanvas.deref() === undefined'), true, 'chat releases the previous space canvas');
   await page.evaluate("document.querySelector('[data-phase]').setAttribute('data-phase','hero')");
   await page.evaluate("measure('statistics:mount',()=>mount('statistics'),()=>!!document.querySelector('[data-ccd-stats-card]'))");
-  await page.evaluate("measure('statistics:models',()=>document.querySelector('[data-option=\"models\"]').click(),()=>!!document.querySelector('[aria-label=\"各模型每日 Token 用量\"]'))");
   await page.evaluate("measure('statistics:range',()=>document.querySelector('[data-option=\"7d\"]').click())");
+  await page.evaluate("measure('statistics:models',()=>document.querySelector('[data-option=\"models\"]').click(),()=>!!document.querySelector('[aria-label=\"各模型每日 Token 用量\"]'))");
   await page.evaluate("measure('statistics:snapshot',()=>window.updateStats())");
 }));
 

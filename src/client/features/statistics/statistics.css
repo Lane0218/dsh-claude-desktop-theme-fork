@@ -3,25 +3,57 @@
  * values (Tailwind classes) cross-checked against its @2x screenshots; see
  * theme/tokens.css. Colours are theme variables only.
  *
- * By default the card flows between the native greeting and input. The
- * new-session layout supplies the positioning variables that lift it under
- * the greeting: the hero
- * Composer stack sits at the bottom of the column and the greeting is lifted
- * to the top of the page (`--ccd-hero-top`). `--ccd-stats-gap` carries the
- * greeting's measured height plus the 20px gap, so a type or language change
- * moves the card with it. Horizontally the card starts at the Composer card's
- * left edge — the reference gives the title, the card and the input card one
- * shared left edge instead of centring them.
+ * The card is one half of a two-card hero group: the group owns the position and
+ * the Composer's width (770px by default), the grid splits it 480 + 16 + 274 so
+ * both cards share the Composer's left and right edges, and `stretch` gives
+ * them one height. By default the card flows between the native greeting and
+ * input. The new-session layout supplies the positioning variable that lifts
+ * the group under the greeting: the hero Composer stack sits at the bottom of
+ * the column and the greeting is lifted to the top of the page
+ * (`--ccd-hero-top`). `--ccd-stats-gap` carries the greeting's measured height
+ * plus the 20px gap, so a type or language change moves the group with it.
  *
  * Geometry below is the reference's own, at its own scale: a 20px segmented
  * control, 44px tiles, a 160px chart, 72%-wide bars and an 8px legend swatch.
  */
 
-html[data-dsh-ccd-style="true"] [data-ccd-stats-card] {
+/* The group is the only positioned node; the cards are grid items. */
+html[data-dsh-ccd-style="true"] [data-ccd-hero-cards] {
   position: var(--ccd-hero-stats-position, static);
   z-index: 1;
   top: calc(var(--ccd-hero-top) + var(--ccd-stats-gap, 58px));
   left: calc(50% - min(var(--dsh-composer-card-max-width, 770px), 100% - 32px) / 2);
+  box-sizing: border-box;
+  width: min(var(--dsh-composer-card-max-width, 770px), calc(100% - 32px));
+  container-type: inline-size;
+  pointer-events: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-hero-cards] > .ccd-hero-cards-grid {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 480px) minmax(0, 274px);
+  gap: 16px;
+  align-items: stretch;
+  width: 100%;
+}
+
+/* Narrow column: the continue card has nowhere to go, so the statistics card
+   takes the whole width. The query is on the group, not the window, because
+   the Composer's column is what actually shrinks (sidebar, panel, drag). The
+   extra `[data-ccd-hero-cards]` step outranks the cards' own base rules, which
+   are written further down this file. */
+@container (max-width: 769px) {
+  html[data-dsh-ccd-style="true"] [data-ccd-hero-cards] > .ccd-hero-cards-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  html[data-dsh-ccd-style="true"] [data-ccd-hero-cards] [data-ccd-recent-card] {
+    display: none;
+  }
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-stats-card] {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -29,9 +61,8 @@ html[data-dsh-ccd-style="true"] [data-ccd-stats-card] {
      this puts the first tile row ~40px below the card's top edge, which is the
      proportion the reference shows. */
   gap: 8px;
-  width: min(480px, calc(100% - 32px));
-  flex-shrink: 0;
-  margin: var(--ccd-hero-stats-margin, 20px 16px);
+  width: 100%;
+  min-width: 0;
   padding: 8px 12px 12px;
   border: 1px solid var(--ccd-border-soft);
   border-radius: 8px;
@@ -87,16 +118,32 @@ html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-seg-btn:hover:n
   color: var(--ccd-stats-value);
 }
 
+/* The single-view case: the name still sits in the pill, but it is not a
+   control and must not read like one under the pointer. */
+html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-seg-static .ccd-stats-seg-btn {
+  cursor: default;
+}
+
 html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-body {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
+  /* Both views reserve one body height, so the card is the same size whichever
+     tab is open and the continue card beside it never has to stretch for a
+     shorter neighbour. The views below spend any extra height on their own
+     content instead of leaving a band of blank at the foot. */
+  min-height: 240px;
   min-width: 0;
 }
 
 html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-overview {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  gap: 6px;
+  /* Tiles to heatmap: a little more air than the tile gutters, and any surplus
+     from a taller neighbour is spent here rather than at the card's foot. */
+  justify-content: space-between;
+  gap: 12px;
 }
 
 /* The 3×2 tile grid: 4px gutters, 44px tiles, 5px corners. */
@@ -137,10 +184,10 @@ html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-value {
   text-overflow: ellipsis;
 }
 
-/* `Favorite model` prints one size down, as the reference does. */
+/* `Favorite model` prints one size down; it keeps the values' weight, because a
+   single lighter tile in the grid reads as disabled rather than as smaller. */
 html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-value-small {
   font-size: 12px;
-  font-weight: 500;
   line-height: 17px;
 }
 
@@ -186,25 +233,26 @@ html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-heat-cell[data-
   background: transparent;
 }
 
-html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-note {
-  margin: 0;
-  padding-top: 4px;
-  color: var(--ccd-stats-label);
-  font-size: 11px;
-  line-height: 17px;
+/* Today's cell gets a ring, so the `today` range has a point on the map. It is
+   drawn in the secondary ink rather than the value ink: black on a grey or blue
+   cell reads as a stroke around a table cell, not as a quiet "you are here". */
+html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-heat-cell[data-today="true"] {
+  box-shadow: 0 0 0 1px var(--ccd-text-secondary);
 }
 
 /* Models view: the chart group keeps the reference's 5px rhythm. */
 html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-models {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 5px;
 }
 
 /*
  * The chart is a 2×2 grid: the axis column, the plot, and the label row under
- * the plot. The reference fixes the whole block at 160px, pads it 8/10/5/3 and
- * puts 12px between the plot and the labels.
+ * the plot. It keeps the reference's 160px as a floor and grows into whatever
+ * height the card has, so the bars fill the panel instead of leaving blank
+ * space under the legend.
  */
 html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-chart {
   box-sizing: border-box;
@@ -213,7 +261,8 @@ html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-chart {
   grid-template-rows: minmax(0, 1fr) auto;
   column-gap: 11px;
   row-gap: 12px;
-  height: 160px;
+  flex: 1 1 auto;
+  min-height: 160px;
   padding: 8px 10px 5px 3px;
   color: var(--ccd-stats-label);
   font-size: 11px;
@@ -405,4 +454,129 @@ html[data-dsh-ccd-style="true"] [data-ccd-stats-card] .ccd-stats-tip-dot {
   height: 6px;
   flex-shrink: 0;
   border-radius: 50%;
+}
+
+/*
+ * The continue card. Same panel as the statistics card beside it — same border,
+ * radius and fill — so the pair reads as one block, and the rows are plain
+ * two-line buttons: a title and a `workspace · when` line.
+ */
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 8px 4px 8px;
+  border: 1px solid var(--ccd-border-soft);
+  border-radius: 8px;
+  background: var(--ccd-stats-panel);
+  font-family: var(--ccd-font-ui);
+  pointer-events: auto;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-header {
+  flex: none;
+  padding: 0 8px;
+  color: var(--ccd-stats-label);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  /* A row or two of slack (when the statistics card is the taller one) is
+     shared between the rows instead of collecting as one blank block. */
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 0;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-item {
+  min-width: 0;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-row {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-row:hover {
+  background: var(--ccd-hover);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-row:focus-visible {
+  outline: 2px solid var(--ccd-accent);
+  outline-offset: -2px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* A running session: one small dot, the same accent the host uses for state. */
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ccd-accent);
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-title {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--ccd-stats-value);
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--ccd-stats-label);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-space {
+  overflow: hidden;
+  min-width: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The time is the part that must survive a long workspace name. */
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-separator,
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-when {
+  flex: none;
+}
+
+html[data-dsh-ccd-style="true"] [data-ccd-recent-card] .ccd-recent-empty {
+  padding: 5px 8px;
+  color: var(--ccd-stats-label);
+  font-size: 12px;
+  line-height: 18px;
 }
