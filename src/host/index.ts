@@ -41,6 +41,7 @@ export const Config = z.object({
     'composer-pet': z.boolean().default(DEFAULT_FEATURES['composer-pet']),
     'composer-stats': z.boolean().default(DEFAULT_FEATURES['composer-stats']),
     'context-panel': z.boolean().default(DEFAULT_FEATURES['context-panel']),
+    quote: z.boolean().default(DEFAULT_FEATURES.quote),
     'hero-ripples': z.boolean().default(DEFAULT_FEATURES['hero-ripples']),
   }).default({ ...DEFAULT_FEATURES }).description('按模块启用').volatile(),
   /* One volatile node per section, exactly like `features`: Cordis rejects a

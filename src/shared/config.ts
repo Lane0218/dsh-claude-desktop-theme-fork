@@ -10,7 +10,7 @@
  */
 export const FEATURE_IDS = [
   'sidebar', 'right-panel', 'new-session', 'conversation', 'tool-calls', 'statistics', 'composer-pet',
-  'composer-stats', 'context-panel', 'hero-ripples',
+  'composer-stats', 'context-panel', 'quote', 'hero-ripples',
 ] as const;
 
 export type FeatureId = typeof FEATURE_IDS[number];
@@ -105,6 +105,7 @@ export const DEFAULT_FEATURES: FeatureFlags = Object.freeze({
   'composer-pet': true,
   'composer-stats': false,
   'context-panel': true,
+  quote: true,
   'hero-ripples': true,
 });
 

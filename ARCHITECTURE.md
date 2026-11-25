@@ -44,6 +44,9 @@ Host 依赖 shared 与 Host 运行库；客户端各层通过 contracts、core�
 | statistics | 用量概览、热力图与模型图表 | 开启 |
 | composer-stats | 状态栏末尾的统计读数（输出速度与缓存命中率） | 关闭 |
 | context-panel | 上下文圆环的分段分解面板（收起／展开两态） | 开启 |
+| quote | 选区引用：框选正文后出现的引用按钮 | 开启 |
+
+选区引用由 `features/quote/mount.ts` 接管，是两个宿主席位拼起来的：`ctx.uiConversation.interactions.register` 以 id `ccd-quote` 声明一次「选中文字」手势（右键菜单与键盘选择不声明），先用 Session 快照排掉已删除的会话与不可续写的子会话，再 `request.open()` 认领；认领后 Chat 视图把选区浮层交给同 id 的槽位 `conversation.chat.text-interaction`，插件在那里只画一枚药丸按钮。浮层的定位、避让输入框和限制在对话列内都是宿主的，插件不参与排版。点击时 `insertQuote(text)` 把这段文字作为引用块写进当前会话的输入框，随后清掉选区并关闭浮层；宿主拒绝写入（输入框不在可写阶段）时按钮原地显示「输入框忙」1.6 秒、浮层与选区都保留，可以直接重试。两个席位都是可选依赖：老构建既没有交互注册表也没有这个槽位，此时插件什么都不注册，界面保持原样。宿主另有一个 shipped 的 `dsh-message-quotes` 做同样的事（含发送后引用块的专门渲染），但它没有装进这个 profile；两者占同一格——每次手势只认第一个认领者——所以这里用插件自己的 id，将来在同一个浮层里加「在右侧栏提问」不必和它抢。
 
 会话过程由 `view.expandConversationProcess` 控制，默认开启平铺：`compat/conversation-process.ts` 通过宿主 `data-turn-process` 与 `data-process-activity` 控件展开整轮过程和步骤分组，跟随流式完成、历史加载及会话切换；仅在开启时挂载 `features/conversation/process-expanded.css`，展开后隐藏「已完成，用时…」和步骤分组标题，并取消过程区的内部限高滚动。思考与工具调用条目仍由宿主渲染，各自的详情折叠保持独立。自动展开后恢复原输入焦点；关闭「过程默认展开」或 conversation 功能会停止观察，并通过原生控件撤回插件自动展开的状态，原本展开的条目不动，恢复宿主标题、限高滚动与工作步骤展示／收起策略。工具聚合摘要仍由独立的 tool-calls 功能控制。
 

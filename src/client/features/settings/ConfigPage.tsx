@@ -71,6 +71,7 @@ const OFFERED_FEATURES: readonly FeatureId[] = [
   'statistics',
   'composer-stats',
   'context-panel',
+  'quote',
 ];
 
 const FEATURE_KEYS: Record<FeatureId, SettingsKey> = {
@@ -84,6 +85,7 @@ const FEATURE_KEYS: Record<FeatureId, SettingsKey> = {
   'composer-pet': 'feature.composer-pet',
   'composer-stats': 'feature.composer-stats',
   'context-panel': 'feature.context-panel',
+  quote: 'feature.quote',
 };
 
 /**
@@ -101,6 +103,7 @@ const FEATURE_HINTS: Record<Exclude<FeatureId, 'hero-ripples'>, SettingsKey> = {
   'composer-pet': 'hint.composer-pet',
   'composer-stats': 'hint.composer-stats',
   'context-panel': 'hint.context-panel',
+  quote: 'hint.quote',
 };
 
 /**

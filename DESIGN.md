@@ -242,6 +242,14 @@
 - **卡片里的词随语言**：标题、按钮名、⋮ 菜单、过滤框、空态与等待提示都是插件自己写的（宿主没有这些字符串），放在 [pane-labels.ts](src/client/compat/pane-labels.ts)：文档语言是中文时写中文，其余语言使用英文（`Files`／`Search file names…`／`Open files appear here`／`Save screenshot`／`Awaiting server…`）。宿主自己的词（根路径、重新加载、在应用中打开、页面正文）两种语言下都不动，`<html lang>` 变化时已挂载的卡片按新语言重写。
 - 落点：几何在 [pane-tiles.ts](src/client/compat/pane-tiles.ts) 与 [right-panes.ts](src/client/compat/right-panes.ts)，标题栏与菜单在 [pane-chrome.ts](src/client/compat/pane-chrome.ts)，浏览器分组菜单与截图在 [browser-menu.ts](src/client/compat/browser-menu.ts)，图形在 [pane-icons.ts](src/client/compat/pane-icons.ts)，过滤／空预览在 [files-pane.ts](src/client/compat/files-pane.ts)，插件自己写的那一套词在 [pane-labels.ts](src/client/compat/pane-labels.ts)，样式与色阶在 [right-panel.css](src/client/features/right-panel/right-panel.css) 和 [tokens.css](src/client/theme/tokens.css)。Chrome 测试验证布局、真实命中、按钮顺序、宿主导航、功能限制提示及清理。
 
+### 6.10 选区引用
+
+- 只在**已完成的正文**上出现。宿主自己检测选区、自己定位浮层（贴近选区居中、避开输入框与输入栏 dock、限制在对话列可见区内），插件只被要求画浮层里的内容，因此这里没有箭头、没有自绘阴影层次，也不在选区之外常驻。
+- 一枚药丸按钮，沿用宿主浮动控件的同一套配方：`--dsw-alias-button-floating-fill` 作底（主题已映射到 `--ccd-card`）、`--dsw-elevation-panel` 阴影、`--dsw-alias-border-l3` 发丝描边、`--dsw-alias-label-primary` 墨色；13px/20px、字重 500、高 26px、内边距 3px 10px、全圆角。悬停与键盘聚焦换成 `--dsw-alias-button-floating-hover`（`--ccd-hover`），不引入第二套配色，深色模式随 token 走。
+- 文案跟界面语言：中文 `引用文本`，其余语言 `Quote text`；宿主拒绝写入时原地改成 `输入框忙`／`Composer busy` 1.6 秒，浮层与选区都保留，可以直接重试。
+- 点击后引用以引用块进入当前会话的输入框（宿主 `insertQuote`，与手工输入同一条路径，发送时是普通 Markdown 引用），随后清掉选区并关闭浮层。
+- 落点：[quote.css](src/client/features/quote/quote.css) 是这枚药丸的全部样式，[QuoteAction.tsx](src/client/features/quote/QuoteAction.tsx) 是它和那句失败提示，认领手势与挂载槽位在 [mount.ts](src/client/features/quote/mount.ts)。
+
 ## 七、状态、动效与可达性
 
 - 交互反馈只有两种：填充（hover／展开／选中）与墨色（次级 → 强）。需要过渡时只用 0.1s 的 `background-color`／`color`，不做位移动画。

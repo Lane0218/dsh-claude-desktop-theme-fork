@@ -1,0 +1,57 @@
+/*
+ * The selection action (ARCHITECTURE.md#界面模块, DESIGN.md §6.10).
+ *
+ * DSH's Chat view owns the floating surface: it positions an absolutely placed
+ * box beside the selection and preserves whatever outer stroke and shadow the
+ * occupant draws, with `max-width`/`max-height` following the visible slice of
+ * the transcript. The control therefore stays on one line and never grows.
+ *
+ * The pill is the host's own floating-control recipe — `button-floating-fill`
+ * over `elevation-panel`, hairline stroke from `border-l3` — which the theme
+ * already remaps onto the CCD card and hover fills, so both colour schemes are
+ * covered without a second palette here.
+ *
+ * `user-select: none` is load-bearing: the surface sits inside the transcript,
+ * and a press that extends the selection would move the button out from under
+ * the pointer before the click lands.
+ */
+
+.ccd-quote-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-button-floating-fill);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l3);
+  box-shadow: var(--dsw-elevation-panel);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--ccd-font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .ccd-quote-action:hover {
+    background: var(--dsw-alias-button-floating-hover);
+  }
+}
+
+.ccd-quote-action:focus-visible {
+  background: var(--dsw-alias-button-floating-hover);
+  outline: none;
+}
+
+/* A refused insertion says so in place; the surface stays open on the
+   selection, so the reader can retry once the composer is writable again. */
+.ccd-quote-action[data-busy] {
+  color: var(--dsw-alias-label-secondary);
+  cursor: default;
+}

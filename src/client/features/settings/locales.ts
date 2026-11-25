@@ -107,6 +107,8 @@ export const zh = {
   'hint.composer-stats': '输出速度与缓存命中率，关掉时这两项不显示（默认）',
   'feature.context-panel': '上下文分解面板',
   'hint.context-panel': '点环打开的分段面板；关掉时环点开的是 DSH 原生面板',
+  'feature.quote': '选区引用',
+  'hint.quote': '框选回答里的一段话，冒出的按钮把这段文字放进输入框；默认开启',
 } as const;
 
 export type SettingsKey = keyof typeof zh;
@@ -210,6 +212,8 @@ export const en: Record<SettingsKey, string> = {
   'hint.composer-stats': 'Output speed and cache-hit rate; the two stay out of the row while this is off (the default)',
   'feature.context-panel': 'Context breakdown panel',
   'hint.context-panel': 'The segmented panel the ring opens; while this is off the ring opens DSH’s own panel',
+  'feature.quote': 'Selection quote',
+  'hint.quote': 'Select a passage in an answer and the button that appears puts it in the composer. On by default.',
 };
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

@@ -15,6 +15,8 @@ export const DSH_SLOTS = Object.freeze({
   composerBar: 'conversation.composer.bar',
   inputDock: 'conversation.input.dock',
   composerDock: 'conversation.composer.dock',
+  /** The Chat view's selection surface: one cell per admitted interaction id. */
+  textInteraction: 'conversation.chat.text-interaction',
   toolView: 'tool.call.toolview',
   leading: 'shell.leading',
   /** Frame-wide floating layer, click-through until an entry opts back in. */

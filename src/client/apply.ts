@@ -48,6 +48,7 @@ import { mountModelControls } from './features/model-controls/mount.ts';
 import { mountStatusGroups } from './compat/status-groups.ts';
 import { mountViewOptions } from './features/view-options/mount.ts';
 import { mountContextPanel } from './features/context-panel/mount.ts';
+import { mountQuoteSelection } from './features/quote/mount.ts';
 import { mountHeaderActions } from './features/conversation/header-actions/mount.ts';
 import { mountComposerPet } from './features/composer-pet/mount.ts';
 import { mountSearchPalette } from './features/search-palette/mount.ts';
@@ -290,6 +291,13 @@ export function apply(ctx: Context): void {
            decides whether the ring opens our card or DSH's own panel. */
         if (next.features['context-panel']) {
           mountContextPanel(ctx, environment, scope);
+        }
+        /* The quote action is a cell in the Chat view's selection surface. It
+           claims the gesture itself, so it mounts beside the Conversation page
+           features rather than inside the Conversation switch: a disabled
+           Conversation switch hides host chrome, not the transcript. */
+        if (next.features.quote) {
+          mountQuoteSelection(ctx, environment, scope);
         }
         /* The sidebar feature carries the account menu's archived row, which
            writes the filter this block has just mounted the driver for. */
