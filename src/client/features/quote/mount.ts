@@ -9,7 +9,7 @@ import { resolveSidebarRight, resolveSidebarTabs } from '../../compat/sidebar-vi
 import { QuoteAction } from './QuoteAction.tsx';
 import { SideChatConversation, SideChatTab, SIDE_CHAT_SLOT } from './SideChatTab.tsx';
 import {
-  createSideChat, prepareSideChat, referenceForSideChat, releaseAllSideChats, releaseSideChat,
+  closeSideChat, createSideChat, prepareSideChat, referenceForSideChat, releaseAllSideChats, releaseSideChat,
 } from './side-chat.ts';
 import type { SideChatTarget } from './side-chat.ts';
 import css from './quote.css';
@@ -351,7 +351,9 @@ function mountSideChat(
     const offClose = tabTypes.registerCloseHandler?.(SIDE_CHAT_KIND, tab => {
       const record = tab as { readonly contentId?: string; readonly params?: { readonly sessionId?: string } } | undefined;
       const sessionId = record?.params?.sessionId ?? record?.contentId;
-      if (typeof sessionId === 'string') releaseSideChat(sessionId);
+      /* Closing the tab is what ends the side chat: the Session is archived so
+         the conversation does not survive in the sidebar. */
+      if (typeof sessionId === 'string') void closeSideChat(ctx, environment, sessionId);
     });
     if (offClose !== undefined) disposers.push(offClose);
     disposers.push(releaseAllSideChats);

@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis';
+import { PLUGIN_ID } from '../../../shared/identity.ts';
 import type { FeatureEnvironment } from '../../contracts/feature.ts';
 
 /**
@@ -60,32 +61,16 @@ interface WorkspacesFace {
 }
 
 /**
- * The composer facade for one Session (`SessionInputResolver.for`). `setDraft`
- * is declared for strings, but the runtime resolves the same call through
- * `DraftSnapshot`, which is the only way to place a real reference chip.
+ * The composer facade for one Session (`SessionInputResolver.for`): only the
+ * two calls this module makes.
  */
 interface InputFacade {
-  setDraft(draft: string | DraftSnapshot): void;
+  setDraft(text: string): void;
   submit(): void;
 }
 
 interface ConversationInputFace {
   for(actx: Context): InputFacade;
-}
-
-interface ReferenceEntry {
-  readonly offset: number;
-  readonly length: number;
-  readonly clipboardText: string;
-  readonly source: string;
-  readonly ref: string;
-  readonly label: string;
-  readonly appearance?: 'session' | 'file' | 'folder';
-}
-
-interface DraftSnapshot {
-  readonly text: string;
-  readonly references: readonly ReferenceEntry[];
 }
 
 /** One reference the side chat keeps alive for as long as its tab is open. */
@@ -114,32 +99,75 @@ export function sessionReferenceUri(sessionId: string): string {
 /**
  * The prompt a fresh side chat starts from.
  *
- * The reference span is the chip; the quote is ordinary Markdown so it survives
- * send as a block quote. Offsets have to line up exactly — the host validates
- * that `text.slice(offset, offset + length)` equals `clipboardText`.
+ * The mention is written as the canonical Markdown form rather than inserted as
+ * a reference chip: a chip serializes through its reference source, and this
+ * build registers no `session` source (sending one fails with "no serializer for
+ * reference source"). The host parses the canonical form out of the message
+ * text, and the transcript still renders it as a chip through the shipped
+ * `session` user-text rule.
  *
- * @param label - the main Session's title, as the chip shows it.
+ * The quote is ordinary Markdown so it survives send as a block quote.
+ *
+ * @param label - the main Session's title, as the mention shows it.
  * @param sessionId - the Session the mention points at.
  * @param quote - the selected passage.
- * @returns the draft and the one reference it carries.
+ * @returns the draft text, ready for `setDraft`.
  */
-export function sideChatDraft(label: string, sessionId: string, quote: string): DraftSnapshot {
-  const mention = `@${label}`;
+export function sideChatDraft(label: string, sessionId: string, quote: string): string {
+  /* The label sits inside Markdown link brackets, so a bracket or a line break in
+     it would end the mention early. */
+  const safe = label.replace(/[[\]\r\n]/gu, ' ').replace(/\s+/gu, ' ').trim() || '主会话';
+  const mention = `@[${safe}](${sessionReferenceUri(sessionId)})`;
   const quoted = quote.split(/\r?\n/gu).map(line => `> ${line}`).join('\n');
-  const text = `${mention}\n\n${quoted}\n\n`;
-  return {
-    text,
-    references: [{
-      offset: 0, length: mention.length, clipboardText: mention,
-      source: 'session', ref: sessionReferenceUri(sessionId), label, appearance: 'session',
-    }],
-  };
+  return `${mention}\n\n${quoted}\n\n`;
 }
 
 /** One live tab's reference, released when that tab closes or the plugin unloads. */
 const held = new Map<string, HeldReference>();
 
+/** Session ids whose sidebar row stays out of the column while the side chat lives. */
+const hiddenRows = new Set<string>();
+let rowSheet: HTMLStyleElement | null = null;
+
+/**
+ * Rewrite the one injected rule that keeps side-chat rows out of the sidebar.
+ *
+ * The column's rows carry `data-row-key="session:<id>"` from the moment React
+ * creates them (the same hook the blank-row rule uses), so a rule keyed by that
+ * attribute hides a row even when it is not blank — which a side chat stops being
+ * as soon as its first message is sent.
+ */
+function syncRowSheet(): void {
+  if (typeof document === 'undefined') return;
+  if (hiddenRows.size === 0) {
+    rowSheet?.remove();
+    rowSheet = null;
+    return;
+  }
+  if (rowSheet === null) {
+    rowSheet = document.createElement('style');
+    rowSheet.dataset.plugin = PLUGIN_ID;
+    document.head.appendChild(rowSheet);
+  }
+  rowSheet.textContent = [...hiddenRows]
+    .map(id => `[data-row-key="session:${id}"]{display:none!important}`)
+    .join('\n');
+}
+
+/** Keep one side chat's row out of the sidebar. */
+export function hideSidebarRow(sessionId: string): void {
+  hiddenRows.add(sessionId);
+  syncRowSheet();
+}
+
+/** Stop hiding it; the host's own archive filter takes over from here. */
+export function showSidebarRow(sessionId: string): void {
+  hiddenRows.delete(sessionId);
+  syncRowSheet();
+}
+
 export function releaseSideChat(sessionId: string): void {
+  showSidebarRow(sessionId);
   const entry = held.get(sessionId);
   if (entry === undefined) return;
   held.delete(sessionId);
@@ -149,6 +177,43 @@ export function releaseSideChat(sessionId: string): void {
 /** Every Session id a side chat is holding, for the plugin's own teardown. */
 export function releaseAllSideChats(): void {
   for (const id of [...held.keys()]) releaseSideChat(id);
+}
+
+/** The workspace controller calls this module needs. */
+interface WorkspaceArchiveFace {
+  archiveSession?(sessionId: string, options?: { readonly stopActivity?: boolean }): Promise<unknown>;
+}
+
+/**
+ * Close a side chat: archive its Session, then release the reference.
+ *
+ * Archiving is what makes "closing the tab" actually remove the conversation:
+ * the host stops listing an archived Session, and it is also what stops a
+ * running turn instead of leaving it in the background. A failure is only
+ * logged — the tab still closes, and the row rule keeps the Session out of sight
+ * until the reader notices it under the archived filter.
+ *
+ * @param ctx - client context carrying the workspace controller.
+ * @param environment - logging for this activation.
+ * @param sessionId - the side chat's Session.
+ */
+export async function closeSideChat(
+  ctx: Context,
+  environment: FeatureEnvironment,
+  sessionId: string,
+): Promise<void> {
+  try {
+    const face = (ctx as unknown as { uiWorkspace?: WorkspaceArchiveFace }).uiWorkspace;
+    const archive = face?.archiveSession;
+    if (typeof archive !== 'function') {
+      environment.logger.debug('side chat: this build exposes no workspace archive; the Session is left as it is');
+    } else {
+      await archive.call(face, sessionId, { stopActivity: true });
+    }
+  } catch (error) {
+    environment.logger.debug(`side chat: the Session could not be archived (${String(error)})`);
+  }
+  releaseSideChat(sessionId);
 }
 
 /**
@@ -211,6 +276,9 @@ export async function createSideChat(
   }
   const reference = sessions.retain(sessionId, { source: 'ccdSideChat' });
   held.set(sessionId, { reference });
+  /* Blank is only true until the first message: the row rule carries it from
+     there to the moment the tab closes and the Session is archived. */
+  hideSidebarRow(sessionId);
   /* The chip names the Session the question is about, not the one asking it. */
   const label = readTitle(mainSessionId) ?? '主会话';
   try {
