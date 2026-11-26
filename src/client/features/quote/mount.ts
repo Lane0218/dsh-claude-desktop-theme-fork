@@ -137,6 +137,27 @@ function currentSidebar(ctx: Context): SidebarRightPort | undefined {
 }
 
 /**
+ * Read the tab-type registry the same way.
+ *
+ * `openTab` refuses an unregistered kind, and the panel only knows the kinds its
+ * registry was told about, so registering the side-chat type is a precondition
+ * of opening it rather than a nicety.
+ *
+ * @param ctx - client root context.
+ * @returns the registry, or nothing when this build does not carry it.
+ */
+function currentTabs(ctx: Context): TabTypes | undefined {
+  try {
+    const get = (ctx as unknown as { get?: (name: string) => unknown }).get;
+    if (typeof get !== 'function') return undefined;
+    const registry = get.call(ctx, 'sidebarRightTabs') as TabTypes | undefined;
+    return typeof registry?.register === 'function' ? registry : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Claim a settled-text selection and offer both actions on it.
  *
  * The right-Sidebar face is deliberately *not* in this plugin's `inject` list —
@@ -161,19 +182,22 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
     environment.logger.debug('quote: no slot service; the action stays off');
     return;
   }
-  /* Whatever the panel reports once it is up; the click reads it then, never at
-     mount time, because the face arrives on its own schedule. */
-  const panel: { sidebar?: SidebarRightPort | undefined } = {};
+  /* The panel faces arrive on their own schedule; the click reads them then and
+     never assumes mount-time availability. */
+  const panel: PanelState = { registered: false, error: null };
   /* The cell goes in before the admission: a claimed gesture whose cell never
      registered would swallow the selection and draw nothing, which is worse
      than leaving every other occupant of that surface free to claim it. */
   scope.add(environment.dom.mountStyles(css));
   const ask = (sessionId: string, text: string): Promise<string | null> => {
+    const refusal = sideChatRegistry(ctx, environment, slots, scope, panel);
+    if (refusal !== null) return Promise.resolve(`页签未注册：${refusal}`);
     const sidebar = panel.sidebar ?? currentSidebar(ctx);
     if (sidebar === undefined) {
       environment.logger.debug('quote: the right panel is not up yet; the side chat was not opened');
       return Promise.resolve('右栏未就绪');
     }
+    panel.sidebar = sidebar;
     return askInSideChat(ctx, environment, sidebar, sessionId, text);
   };
   const cell = { name: DSH_SLOTS.textInteraction, inject: () => ({ ask }) };
@@ -210,19 +234,45 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
   }));
   const fiber = ctx.inject(['sidebarRight', 'sidebarRightTabs'], child => {
     const sidebar = resolveSidebarRight(child);
+    if (sidebar !== undefined) panel.sidebar = sidebar;
     const tabs = resolveSidebarTabs(child) as unknown as TabTypes | undefined;
-    if (sidebar === undefined || tabs === undefined || typeof tabs.register !== 'function') {
-      environment.logger.debug('quote: the right Sidebar is incomplete; the side-chat action stays off');
-      return () => {};
-    }
-    panel.sidebar = sidebar;
-    const stop = mountSideChat(ctx, environment, slots, tabs);
-    return () => {
-      panel.sidebar = undefined;
-      stop();
-    };
+    if (tabs !== undefined && panel.tabs === undefined) panel.tabs = tabs;
+    return () => {};
   });
   scope.add(() => { void (fiber as unknown as { dispose(): unknown }).dispose(); });
+  /* Register the page type now rather than waiting on the injection: `openTab`
+     refuses an unknown kind, and a click is a bad moment to discover that. */
+  panel.sidebar ??= currentSidebar(ctx);
+  sideChatRegistry(ctx, environment, slots, scope, panel);
+}
+
+/**
+ * Make sure the side-chat page type is registered, once.
+ *
+ * Registration is idempotent here: the first call that finds a registry mounts
+ * everything and records why it failed, if it did; later calls only report.
+ *
+ * @returns null when the page type is in place, or the reason it is not.
+ */
+function sideChatRegistry(ctx: Context, environment: FeatureEnvironment, slots: SlotSeat,
+  scope: CleanupScope, panel: PanelState): string | null {
+  if (panel.registered) return panel.error;
+  const tabs = panel.tabs ?? currentTabs(ctx);
+  if (tabs === undefined) return panel.error ?? '页签注册表不可用';
+  panel.tabs = tabs;
+  panel.registered = true;
+  const result = mountSideChat(ctx, environment, slots, tabs);
+  scope.add(result.stop);
+  panel.error = result.error ?? null;
+  return panel.error;
+}
+
+/** The right-Sidebar faces this activation has found, and the registration outcome. */
+interface PanelState {
+  sidebar?: SidebarRightPort | undefined;
+  tabs?: TabTypes | undefined;
+  registered: boolean;
+  error: string | null;
 }
 
 /**
@@ -255,7 +305,7 @@ async function askInSideChat(
   } catch (error) {
     environment.logger.error('side chat: the right panel refused the tab', error);
     releaseSideChat(target.sessionId);
-    return '标签打开失败';
+    return `标签打开失败：${describe(error)}`;
   }
   /* The tab is what mounts the composer, so the draft is written after it. */
   return prepareSideChat(ctx, environment, target, mainSessionId, quote);
@@ -267,15 +317,15 @@ async function askInSideChat(
  * @param ctx - client context carrying the Session controller.
  * @param environment - logging for this activation.
  * @param slots - slot service, already guarded by the caller.
- * @param tabTypes - the panel's type registry, available only inside its injection.
- * @returns the disposer releasing every registration made here.
+ * @param tabTypes - the panel's type registry, resolved by the caller.
+ * @returns the disposer releasing every registration, and why it failed if it did.
  */
 function mountSideChat(
   ctx: Context,
   environment: FeatureEnvironment,
   slots: SlotSeat,
   tabTypes: TabTypes,
-): Disposer {
+): { readonly stop: Disposer; readonly error?: string } {
   const disposers: Disposer[] = [];
   const release = () => {
     for (const dispose of disposers.splice(0).reverse()) {
@@ -306,9 +356,15 @@ function mountSideChat(
     if (offClose !== undefined) disposers.push(offClose);
     disposers.push(releaseAllSideChats);
   } catch (error) {
-    environment.logger.error('side chat: the conversation seats were refused', error);
+    environment.logger.error('side chat: the page type was refused', error);
     release();
-    return () => {};
+    return { stop: () => {}, error: describe(error) };
   }
-  return release;
+  return { stop: release };
+}
+
+/** One exception as a short stage suffix the button can show. */
+function describe(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  return text.length > 48 ? `${text.slice(0, 48)}…` : text;
 }
