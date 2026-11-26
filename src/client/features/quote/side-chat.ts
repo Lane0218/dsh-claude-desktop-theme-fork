@@ -230,6 +230,12 @@ export async function createSideChat(
 const COMPOSER_WAIT_MS = 4000;
 /** How often the prefill retries while the composer is not mounted yet. */
 const COMPOSER_RETRY_MS = 60;
+/** How long the permission command may take to be confirmed before writing anyway. */
+const PERMISSION_WAIT_MS = 1500;
+/** How many times the drafted passage is written before giving up on it sticking. */
+const DRAFT_ATTEMPTS = 3;
+/** How long each write is given to survive before it is read back. */
+const DRAFT_SETTLE_MS = 350;
 
 /**
  * Wait for one Session's composer to accept a draft, then run one write on it.
@@ -263,12 +269,50 @@ async function whenComposerReady(
 }
 
 /**
+ * The Session's permission projection, read only for change detection.
+ *
+ * The snapshot object is replaced on every host-confirmed update, so identity is
+ * a sufficient signal; the field names inside it are none of this module's
+ * business.
+ */
+function permissionSnapshot(reference: SideChatReference): unknown {
+  try {
+    return reference.binding.session.projections.faceOf('permissions').getSnapshot();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Wait for the permission command to be confirmed before anything else writes.
+ *
+ * Submitting a command is asynchronous, and a settled command clears the draft
+ * (that is how the composer consumes its token). Writing the visible draft
+ * before that settlement is what made the chip and the quote appear for a moment
+ * and then vanish, so this waits for the host to confirm the new preset — or for
+ * the deadline, in which case the draft is written anyway.
+ *
+ * @param reference - the side chat's retained reference.
+ * @param before - the projection value captured before submitting.
+ */
+async function permissionSettled(reference: SideChatReference, before: unknown): Promise<void> {
+  const deadline = Date.now() + PERMISSION_WAIT_MS;
+  for (;;) {
+    if (permissionSnapshot(reference) !== before) return;
+    if (Date.now() >= deadline) return;
+    await new Promise(resolve => { setTimeout(resolve, COMPOSER_RETRY_MS); });
+  }
+}
+
+/**
  * Pin the side chat to the read-only preset and put the question's context in
  * its composer.
  *
- * Order matters twice over. The permission command goes first because
- * submitting consumes the draft; and both writes wait for the composer, because
- * the tab that mounts it opens before this runs.
+ * Order matters three times over. Every write waits for the composer, because
+ * the tab that mounts it opens before this runs. The permission command goes
+ * first because submitting a command consumes the draft. And the drafted quote
+ * is written only after the command is confirmed, because a settled command
+ * clears the draft it consumed — which is exactly what made the content flash.
  *
  * @param ctx - client context carrying the conversation service.
  * @param environment - logging for this activation.
@@ -294,15 +338,43 @@ export async function prepareSideChat(
     environment.logger.error('side chat: the composer never became writable for the permission preset');
     return '输入框未就绪';
   }
+  const before = permissionSnapshot(reference);
   await whenComposerReady(ctx, reference, facade => { facade.submit(); });
-  const drafted = await whenComposerReady(ctx, reference, facade => {
-    facade.setDraft(sideChatDraft(target.label, mainSessionId, quote));
-  });
-  if (!drafted) {
-    environment.logger.error('side chat: the composer never accepted the draft');
-    return '草稿写入失败';
+  await permissionSettled(reference, before);
+  const draft = sideChatDraft(target.label, mainSessionId, quote);
+  /* The probe is the quoted passage itself: at this point the tab holds only the
+     composer, so finding that text there means the draft survived whatever wrote
+     after it. A miss is not proof of failure, so the loop only decides whether
+     to write again — the last successful write is what is reported. */
+  const probe = quote.trim().slice(0, 8);
+  let drafted = false;
+  for (let attempt = 0; attempt < DRAFT_ATTEMPTS && !drafted; attempt += 1) {
+    const written = await whenComposerReady(ctx, reference, facade => { facade.setDraft(draft); });
+    if (!written) {
+      environment.logger.error('side chat: the composer never accepted the draft');
+      return '草稿写入失败';
+    }
+    await new Promise(resolve => { setTimeout(resolve, DRAFT_SETTLE_MS); });
+    drafted = probe === '' || draftVisible(target.sessionId, probe);
   }
+  if (!drafted) environment.logger.debug('side chat: the draft could not be read back after writing it');
   return null;
+}
+
+/**
+ * Whether the side chat's composer still shows the drafted passage.
+ *
+ * @param sessionId - the side chat's Session, i.e. the tab body's marker.
+ * @param probe - a distinctive prefix of the quoted passage.
+ * @returns whether the text is present in that tab.
+ */
+function draftVisible(sessionId: string, probe: string): boolean {
+  try {
+    const tab = document.querySelector(`[data-ccd-side-chat="${CSS.escape(sessionId)}"]`);
+    return tab?.textContent?.includes(probe) === true;
+  } catch {
+    return false;
+  }
 }
 
 /** Copy the main Session's model selection onto the side chat, when it has one. */
