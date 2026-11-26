@@ -8,7 +8,10 @@ import { DSH_SLOTS, OVERRIDE_PRIORITY } from '../../compat/slots.ts';
 import { resolveSidebarRight, resolveSidebarTabs } from '../../compat/sidebar-view.ts';
 import { QuoteAction } from './QuoteAction.tsx';
 import { SideChatConversation, SideChatTab } from './SideChatTab.tsx';
-import { createSideChat, referenceForSideChat, releaseAllSideChats, releaseSideChat } from './side-chat.ts';
+import {
+  createSideChat, prepareSideChat, referenceForSideChat, releaseAllSideChats, releaseSideChat,
+} from './side-chat.ts';
+import type { SideChatTarget } from './side-chat.ts';
 import css from './quote.css';
 
 /**
@@ -165,13 +168,13 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
      registered would swallow the selection and draw nothing, which is worse
      than leaving every other occupant of that surface free to claim it. */
   scope.add(environment.dom.mountStyles(css));
-  const ask = (sessionId: string, text: string): void => {
+  const ask = (sessionId: string, text: string): Promise<string | null> => {
     const sidebar = panel.sidebar ?? currentSidebar(ctx);
     if (sidebar === undefined) {
       environment.logger.debug('quote: the right panel is not up yet; the side chat was not opened');
-      return;
+      return Promise.resolve('右栏未就绪');
     }
-    void askInSideChat(ctx, environment, sidebar, sessionId, text);
+    return askInSideChat(ctx, environment, sidebar, sessionId, text);
   };
   const cell = { name: DSH_SLOTS.textInteraction, inject: () => ({ ask }) };
   /* The registration runs inside `inject`'s callback, i.e. after the slot is
@@ -235,9 +238,15 @@ async function askInSideChat(
   sidebar: SidebarRightPort,
   mainSessionId: string,
   quote: string,
-): Promise<void> {
-  const target = await createSideChat(ctx, environment, mainSessionId, quote);
-  if (target === undefined) return;
+): Promise<string | null> {
+  let target: SideChatTarget | undefined;
+  try {
+    target = await createSideChat(ctx, environment, mainSessionId);
+  } catch (error) {
+    environment.logger.error('side chat: creation failed', error);
+    return '会话创建失败';
+  }
+  if (target === undefined) return '会话创建失败';
   try {
     const previous = sidebar.openTabs.getSnapshot()
       .filter(tab => tab.sessionId === mainSessionId && tab.kind === SIDE_CHAT_KIND);
@@ -246,7 +255,10 @@ async function askInSideChat(
   } catch (error) {
     environment.logger.error('side chat: the right panel refused the tab', error);
     releaseSideChat(target.sessionId);
+    return '标签打开失败';
   }
+  /* The tab is what mounts the composer, so the draft is written after it. */
+  return prepareSideChat(ctx, environment, target, mainSessionId, quote);
 }
 
 /**

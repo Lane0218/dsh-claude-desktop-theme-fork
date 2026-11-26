@@ -186,14 +186,12 @@ export function referenceForSideChat(ctx: Context, sessionId: string): SideChatR
  * @param ctx - client context carrying sessions, workspaces and the composer.
  * @param environment - logging for this activation.
  * @param mainSessionId - the Session the question was asked in.
- * @param quote - the selected passage.
  * @returns the new Session and the chip label, or undefined when nothing was made.
  */
 export async function createSideChat(
   ctx: Context,
   environment: FeatureEnvironment,
   mainSessionId: string,
-  quote: string,
 ): Promise<SideChatTarget | undefined> {
   const sessions = ctx.sessions as unknown as SessionsFace;
   const main = sessions.binding(mainSessionId);
@@ -220,25 +218,91 @@ export async function createSideChat(
   } catch (error) {
     environment.logger.debug(`side chat: model alignment failed (${String(error)})`);
   }
-  try {
-    applyReadOnly(ctx, reference);
-  } catch (error) {
-    environment.logger.debug(`side chat: the read-only preset was not applied (${String(error)})`);
-  }
-  try {
-    const input = (ctx.conversation as unknown as { input: ConversationInputFace }).input;
-    input.for(reference.binding.ctx).setDraft(sideChatDraft(label, mainSessionId, quote));
-  } catch (error) {
-    environment.logger.error('side chat: the draft could not be prefilled', error);
-    releaseSideChat(sessionId);
-    return undefined;
-  }
   return { sessionId, label };
   /* The title is read after creation so the chip carries what the sidebar shows. */
   function readTitle(id: string): string | undefined {
     const title = sessions.list.getSnapshot().byId[id] as { readonly title?: string } | undefined;
     return typeof title?.title === 'string' && title.title !== '' ? title.title : undefined;
   }
+}
+
+/** How long the composer may take to appear before the prefill gives up. */
+const COMPOSER_WAIT_MS = 4000;
+/** How often the prefill retries while the composer is not mounted yet. */
+const COMPOSER_RETRY_MS = 60;
+
+/**
+ * Wait for one Session's composer to accept a draft, then run one write on it.
+ *
+ * The composer's editor is created when its Conversation mounts, and the side
+ * chat's tab is what mounts it — so the draft cannot be written at creation
+ * time. Every write is retried until the editor exists; a rejected write means
+ * "not mounted yet", not "impossible".
+ *
+ * @param ctx - client context carrying the conversation service.
+ * @param reference - the side chat's retained reference.
+ * @param write - the single write to attempt once the composer answers.
+ * @returns whether the write landed.
+ */
+async function whenComposerReady(
+  ctx: Context,
+  reference: SideChatReference,
+  write: (facade: InputFacade) => void,
+): Promise<boolean> {
+  const deadline = Date.now() + COMPOSER_WAIT_MS;
+  for (;;) {
+    try {
+      const input = (ctx.conversation as unknown as { input: ConversationInputFace }).input;
+      write(input.for(reference.binding.ctx));
+      return true;
+    } catch {
+      if (Date.now() >= deadline) return false;
+      await new Promise(resolve => { setTimeout(resolve, COMPOSER_RETRY_MS); });
+    }
+  }
+}
+
+/**
+ * Pin the side chat to the read-only preset and put the question's context in
+ * its composer.
+ *
+ * Order matters twice over. The permission command goes first because
+ * submitting consumes the draft; and both writes wait for the composer, because
+ * the tab that mounts it opens before this runs.
+ *
+ * @param ctx - client context carrying the conversation service.
+ * @param environment - logging for this activation.
+ * @param target - the Session created for this side chat.
+ * @param mainSessionId - the Session the passage came from.
+ * @param quote - the selected passage.
+ * @returns null on success, or the stage that refused the write.
+ */
+export async function prepareSideChat(
+  ctx: Context,
+  environment: FeatureEnvironment,
+  target: SideChatTarget,
+  mainSessionId: string,
+  quote: string,
+): Promise<string | null> {
+  const entry = held.get(target.sessionId);
+  if (entry === undefined) return '会话已释放';
+  const reference = entry.reference;
+  const permitted = await whenComposerReady(ctx, reference, facade => {
+    facade.setDraft('/permission read-only');
+  });
+  if (!permitted) {
+    environment.logger.error('side chat: the composer never became writable for the permission preset');
+    return '输入框未就绪';
+  }
+  await whenComposerReady(ctx, reference, facade => { facade.submit(); });
+  const drafted = await whenComposerReady(ctx, reference, facade => {
+    facade.setDraft(sideChatDraft(target.label, mainSessionId, quote));
+  });
+  if (!drafted) {
+    environment.logger.error('side chat: the composer never accepted the draft');
+    return '草稿写入失败';
+  }
+  return null;
 }
 
 /** Copy the main Session's model selection onto the side chat, when it has one. */
@@ -259,20 +323,4 @@ async function alignModel(
     ...target.reasoningEffort === undefined ? {} : { reasoningEffort: target.reasoningEffort },
   });
   void ctx;
-}
-
-/**
- * Pin the new Session to the read-only preset.
- *
- * Permission presets are only reachable through the composer's command
- * pipeline — there is no remote setter — so the command is typed into the side
- * chat's own composer and submitted before the reader ever sees it. It runs
- * before the prefill on purpose: submitting consumes the draft, so the visible
- * prompt has to land after it.
- */
-function applyReadOnly(ctx: Context, reference: SideChatReference): void {
-  const input = (ctx.conversation as unknown as { input: ConversationInputFace }).input;
-  const facade = input.for(reference.binding.ctx);
-  facade.setDraft('/permission read-only');
-  facade.submit();
 }

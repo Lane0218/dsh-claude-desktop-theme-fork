@@ -25,17 +25,23 @@ export interface QuoteActionProps {
   readonly dismiss?: () => void;
   readonly clearSelection?: () => void;
   readonly inputActions?: QuoteInputActions;
-  /** Open the side chat for this selection; absent when the panel is unavailable. */
-  readonly ask?: (sessionId: string, text: string) => void;
+  /**
+   * Open the side chat for this selection. Resolves to null on success, or to a
+   * short stage name when the panel refused — the control shows it rather than
+   * failing silently, because every step of that flow is otherwise invisible.
+   */
+  readonly ask?: (sessionId: string, text: string) => Promise<string | null>;
 }
 
 const COPY = Object.freeze({
-  zh: { quote: '引用文本', busy: '输入框忙', ask: '在右侧栏提问' },
-  en: { quote: 'Quote text', busy: 'Composer busy', ask: 'Ask in the side panel' },
+  zh: { quote: '引用文本', busy: '输入框忙', ask: '在右侧栏提问', opening: '正在打开…', failed: '侧问：' },
+  en: { quote: 'Quote text', busy: 'Composer busy', ask: 'Ask in the side panel', opening: 'Opening…', failed: 'Side chat: ' },
 });
 
 /** How long a refused insertion explains itself before the label returns. */
 const BUSY_MS = 1600;
+/** How long a refused side chat keeps its reason on the button. */
+const NOTICE_MS = 6000;
 
 /** The interface's own language, matching the inline copy elsewhere in the plugin. */
 function readingChinese(): boolean {
@@ -56,9 +62,13 @@ function readingChinese(): boolean {
 export function QuoteAction(props: QuoteActionProps): ReactElement {
   const { sessionId, readText, dismiss, clearSelection, inputActions, ask } = props;
   const [busy, setBusy] = useState(false);
-  const timer = useRef<number | undefined>(undefined);
+  const [opening, setOpening] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const busyTimer = useRef<number | undefined>(undefined);
+  const noticeTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => {
-    if (timer.current !== undefined) window.clearTimeout(timer.current);
+    if (busyTimer.current !== undefined) window.clearTimeout(busyTimer.current);
+    if (noticeTimer.current !== undefined) window.clearTimeout(noticeTimer.current);
   }, []);
   const insert = useCallback(() => {
     const text = readText?.() ?? null;
@@ -67,8 +77,8 @@ export function QuoteAction(props: QuoteActionProps): ReactElement {
     if (text === null || text.trim() === '') { dismiss?.(); return; }
     if (inputActions?.insertQuote(text) !== true) {
       setBusy(true);
-      if (timer.current !== undefined) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => { setBusy(false); }, BUSY_MS);
+      if (busyTimer.current !== undefined) window.clearTimeout(busyTimer.current);
+      busyTimer.current = window.setTimeout(() => { setBusy(false); }, BUSY_MS);
       return;
     }
     clearSelection?.();
@@ -77,26 +87,40 @@ export function QuoteAction(props: QuoteActionProps): ReactElement {
   const openSideChat = useCallback(() => {
     const text = readText?.() ?? null;
     if (text === null || text.trim() === '') { dismiss?.(); return; }
-    if (sessionId === undefined || ask === undefined) return;
-    ask(sessionId, text);
-    clearSelection?.();
-    dismiss?.();
+    if (sessionId === undefined) { setNotice('当前会话未知'); return; }
+    if (ask === undefined) { setNotice('右栏未就绪'); return; }
+    setNotice(null);
+    setOpening(true);
+    const settle = (reason: string | null) => {
+      setOpening(false);
+      if (reason === null) { clearSelection?.(); dismiss?.(); return; }
+      setNotice(reason);
+      if (noticeTimer.current !== undefined) window.clearTimeout(noticeTimer.current);
+      noticeTimer.current = window.setTimeout(() => { setNotice(null); }, NOTICE_MS);
+    };
+    void ask(sessionId, text).then(settle, (error: unknown) => {
+      settle(error instanceof Error ? error.message.slice(0, 18) : '未知错误');
+    });
   }, [ask, clearSelection, dismiss, readText, sessionId]);
   const copy = readingChinese() ? COPY.zh : COPY.en;
-  const label = busy ? copy.busy : copy.quote;
+  const quoteLabel = busy ? copy.busy : copy.quote;
+  const askLabel = notice !== null ? `${copy.failed}${notice}` : opening ? copy.opening : copy.ask;
   return (
     <span className="ccd-selection-actions">
       <button type="button" className="ccd-quote-action" data-busy={busy ? 'true' : undefined}
-        aria-label={label}
+        aria-label={quoteLabel}
         onPointerDown={event => { event.preventDefault(); }}
         onClick={insert}>
-        {label}
+        {quoteLabel}
       </button>
       {ask === undefined ? null : (
-        <button type="button" className="ccd-quote-action ccd-ask-action" aria-label={copy.ask}
+        <button type="button" className="ccd-quote-action ccd-ask-action" aria-label={askLabel}
+          data-failed={notice === null ? undefined : 'true'}
+          data-opening={opening ? 'true' : undefined}
+          disabled={opening}
           onPointerDown={event => { event.preventDefault(); }}
           onClick={openSideChat}>
-          {copy.ask}
+          {askLabel}
         </button>
       )}
     </span>
