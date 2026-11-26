@@ -7,7 +7,7 @@ import type { FeatureEnvironment } from '../../contracts/feature.ts';
 import { DSH_SLOTS, OVERRIDE_PRIORITY } from '../../compat/slots.ts';
 import { resolveSidebarRight, resolveSidebarTabs } from '../../compat/sidebar-view.ts';
 import { QuoteAction } from './QuoteAction.tsx';
-import { SideChatConversation, SideChatTab } from './SideChatTab.tsx';
+import { SideChatConversation, SideChatTab, SIDE_CHAT_SLOT } from './SideChatTab.tsx';
 import {
   createSideChat, prepareSideChat, referenceForSideChat, releaseAllSideChats, releaseSideChat,
 } from './side-chat.ts';
@@ -342,11 +342,11 @@ function mountSideChat(
     disposers.push(slots.inject('sidebar.right.pane.tab', () => slots.register({
       name: 'sidebar.right.pane.tab',
       key: SIDE_CHAT_KIND,
-      children: { 'sidebar.chat.conversation': { kind: 'single', scope: 'session' } },
+      children: { [SIDE_CHAT_SLOT]: { kind: 'single', scope: 'session' } },
       inject: () => ({ referenceFor: (sessionId: string) => referenceForSideChat(ctx, sessionId) }),
     }, SideChatTab)));
-    disposers.push(slots.inject('sidebar.chat.conversation', () => slots.register({
-      name: 'sidebar.chat.conversation',
+    disposers.push(slots.inject(SIDE_CHAT_SLOT, () => slots.register({
+      name: SIDE_CHAT_SLOT,
     }, SideChatConversation)));
     const offClose = tabTypes.registerCloseHandler?.(SIDE_CHAT_KIND, tab => {
       const record = tab as { readonly contentId?: string; readonly params?: { readonly sessionId?: string } } | undefined;

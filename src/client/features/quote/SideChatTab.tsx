@@ -1,6 +1,17 @@
 import type { ReactElement, ReactNode } from 'react';
 
 /**
+ * The child slot this tab declares to hold the embedded conversation.
+ *
+ * It has to be this plugin's own name: a slot is declared exactly once in the
+ * whole ledger, and the shipped subagent tab already owns
+ * `sidebar.chat.conversation` for the same purpose — declaring that name again
+ * is refused with "slot is already declared", which kept the page type from
+ * registering at all.
+ */
+export const SIDE_CHAT_SLOT = 'ccd.side-chat.conversation';
+
+/**
  * The tab body of one side chat.
  *
  * The panel has already decided this tab exists; all this component does is bind
@@ -38,7 +49,7 @@ export function SideChatTab(props: SideChatTabProps): ReactElement | null {
   return (
     <div className="ccd-side-chat" data-ccd-side-chat={sessionId}>
       <SessionProvider session={reference}>
-        {renderSlot('sidebar.chat.conversation', {}) as ReactElement}
+        {renderSlot(SIDE_CHAT_SLOT, {}) as ReactElement}
       </SessionProvider>
     </div>
   );
