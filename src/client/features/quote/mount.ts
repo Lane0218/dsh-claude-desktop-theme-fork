@@ -23,6 +23,19 @@ export const QUOTE_ACTION_ID = 'ccd-quote';
 export const SIDE_CHAT_KIND = 'ccd-side-chat';
 
 /**
+ * The key the shipped quote plugin registers its cell under.
+ *
+ * `dsh-message-quotes` is part of the default web-app roster, and the Chat view
+ * admits one interaction per gesture: its handler runs first and claims the
+ * selection, so the surface renders *its* key. A keyed slot lets a later
+ * registration take that key over, which is how this plugin draws both actions
+ * in the one cell the host will show. The cell keeps the same props
+ * (`trigger`/`readText`/`dismiss`/`clearSelection`), and the shipped handler has
+ * already done its own Session checks before opening.
+ */
+const SHIPPED_QUOTE_KEY = 'quote';
+
+/**
  * One admitted gesture, as `uiConversation.interactions.dispatch` builds it.
  * Declared structurally: the interaction registry is newer than the pinned SDK
  * types this plugin compiles against.
@@ -147,27 +160,26 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
      registered would swallow the selection and draw nothing, which is worse
      than leaving every other occupant of that surface free to claim it. */
   scope.add(environment.dom.mountStyles(css));
-  try {
-    scope.add(slots.inject(DSH_SLOTS.textInteraction, () => slots.register(
-      {
-        name: DSH_SLOTS.textInteraction,
-        key: QUOTE_ACTION_ID,
-        inject: () => ({
-          ask: (sessionId: string, text: string) => {
-            const sidebar = panel.sidebar ?? currentSidebar(ctx);
-            if (sidebar === undefined) {
-              environment.logger.debug('quote: the right panel is not up yet; the side chat was not opened');
-              return;
-            }
-            void askInSideChat(ctx, environment, sidebar, sessionId, text);
-          },
-        }),
-      },
-      QuoteAction,
-    )));
-  } catch (error) {
-    environment.logger.error('quote: the selection surface refused the cell; the action stays off', error);
-    return;
+  const ask = (sessionId: string, text: string): void => {
+    const sidebar = panel.sidebar ?? currentSidebar(ctx);
+    if (sidebar === undefined) {
+      environment.logger.debug('quote: the right panel is not up yet; the side chat was not opened');
+      return;
+    }
+    void askInSideChat(ctx, environment, sidebar, sessionId, text);
+  };
+  const cell = { name: DSH_SLOTS.textInteraction, inject: () => ({ ask }) };
+  for (const key of [SHIPPED_QUOTE_KEY, QUOTE_ACTION_ID]) {
+    try {
+      /* `quote` first: it is the cell the shipped handler will dispatch to, and
+         replacing it is what puts both actions on screen. */
+      scope.add(slots.inject(DSH_SLOTS.textInteraction, () => slots.register(
+        { ...cell, key },
+        QuoteAction,
+      )));
+    } catch (error) {
+      environment.logger.error(`quote: the selection surface refused the '${key}' cell`, error);
+    }
   }
   scope.add(interactions.register({
     id: QUOTE_ACTION_ID,
