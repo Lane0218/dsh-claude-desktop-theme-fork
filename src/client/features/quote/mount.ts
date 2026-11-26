@@ -4,7 +4,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client';
 import type { CleanupScope } from '../../core/cleanup.ts';
 import type { Disposer, SidebarRightPort } from '../../contracts/ports.ts';
 import type { FeatureEnvironment } from '../../contracts/feature.ts';
-import { DSH_SLOTS } from '../../compat/slots.ts';
+import { DSH_SLOTS, OVERRIDE_PRIORITY } from '../../compat/slots.ts';
 import { resolveSidebarRight, resolveSidebarTabs } from '../../compat/sidebar-view.ts';
 import { QuoteAction } from './QuoteAction.tsx';
 import { SideChatConversation, SideChatTab } from './SideChatTab.tsx';
@@ -26,12 +26,17 @@ export const SIDE_CHAT_KIND = 'ccd-side-chat';
  * The key the shipped quote plugin registers its cell under.
  *
  * `dsh-message-quotes` is part of the default web-app roster, and the Chat view
- * admits one interaction per gesture: its handler runs first and claims the
- * selection, so the surface renders *its* key. A keyed slot lets a later
- * registration take that key over, which is how this plugin draws both actions
- * in the one cell the host will show. The cell keeps the same props
- * (`trigger`/`readText`/`dismiss`/`clearSelection`), and the shipped handler has
- * already done its own Session checks before opening.
+ * admits one interaction per gesture: its handler registers first and claims the
+ * selection, so the surface always renders *its* key. A keyed slot does not let
+ * a later registration take an occupied key over — a second entry at the same
+ * priority throws — so the only way in is `OVERRIDE_PRIORITY`: the slot ledger
+ * sorts entries by ascending priority and `entriesOfSlot` keeps the first entry
+ * of each cell, which means the lowest priority renders. Registering this
+ * plugin's two-pill cell on the shipped key at that priority shadows it, and the
+ * shipped handler is then what opens the cell.
+ *
+ * The cell keeps the same props (`trigger`/`readText`/`dismiss`/`clearSelection`),
+ * and the shipped handler has already done its own Session checks before opening.
  */
 const SHIPPED_QUOTE_KEY = 'quote';
 
@@ -169,18 +174,27 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
     void askInSideChat(ctx, environment, sidebar, sessionId, text);
   };
   const cell = { name: DSH_SLOTS.textInteraction, inject: () => ({ ask }) };
-  for (const key of [SHIPPED_QUOTE_KEY, QUOTE_ACTION_ID]) {
+  /* The registration runs inside `inject`'s callback, i.e. after the slot is
+     declared, so the guard has to live there too: a throw at that point is not
+     caught by a try around `inject` itself. */
+  const registerCell = (key: string, priority: number | undefined) => (): Disposer => {
     try {
-      /* `quote` first: it is the cell the shipped handler will dispatch to, and
-         replacing it is what puts both actions on screen. */
-      scope.add(slots.inject(DSH_SLOTS.textInteraction, () => slots.register(
-        { ...cell, key },
-        QuoteAction,
-      )));
+      return slots.register({
+        ...cell,
+        key,
+        ...priority === undefined ? {} : { priority },
+      }, QuoteAction);
     } catch (error) {
-      environment.logger.error(`quote: the selection surface refused the '${key}' cell`, error);
+      environment.logger.error(`quote: the '${key}' cell was refused by the slot ledger`, error);
+      return () => {};
     }
-  }
+  };
+  /* `quote` first and shadowed: it is the cell the shipped handler dispatches to,
+     and a lower priority is the one way the ledger lets this plugin draw in it. */
+  scope.add(slots.inject(DSH_SLOTS.textInteraction, registerCell(SHIPPED_QUOTE_KEY, OVERRIDE_PRIORITY)));
+  /* The plugin's own key stays as the fallback for a build without the shipped
+     plugin: then this plugin's interaction claims the gesture and draws here. */
+  scope.add(slots.inject(DSH_SLOTS.textInteraction, registerCell(QUOTE_ACTION_ID, undefined)));
   scope.add(interactions.register({
     id: QUOTE_ACTION_ID,
     onInteraction(request) {
