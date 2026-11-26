@@ -2,9 +2,10 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { ReactElement } from 'react';
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client';
 import type { CleanupScope } from '../../core/cleanup.ts';
-import type { Disposer } from '../../contracts/ports.ts';
+import type { Disposer, SidebarRightPort } from '../../contracts/ports.ts';
 import type { FeatureEnvironment } from '../../contracts/feature.ts';
 import { DSH_SLOTS } from '../../compat/slots.ts';
+import { resolveSidebarRight, resolveSidebarTabs } from '../../compat/sidebar-view.ts';
 import { QuoteAction } from './QuoteAction.tsx';
 import { SideChatConversation, SideChatTab } from './SideChatTab.tsx';
 import { createSideChat, referenceForSideChat, releaseAllSideChats, releaseSideChat } from './side-chat.ts';
@@ -18,7 +19,7 @@ import css from './quote.css';
  */
 export const QUOTE_ACTION_ID = 'ccd-quote';
 
-/** The side chat's page kind, and its tab type id �?one name for both. */
+/** The side chat's page kind, and its tab type id — one name for both. */
 export const SIDE_CHAT_KIND = 'ccd-side-chat';
 
 /**
@@ -50,7 +51,10 @@ interface SlotSeat {
   register(options: Record<string, unknown>, component: (props: never) => ReactElement | null): Disposer;
 }
 
-/** The right-Sidebar page registry, as far as one extension type needs it. */
+/**
+ * The right-Sidebar page registry. `SidebarRightTabsPort` from the plugin's own
+ * ports only reads it; a page type additionally registers itself here.
+ */
 interface TabTypes {
   register(definition: {
     readonly id: string;
@@ -59,17 +63,6 @@ interface TabTypes {
     readonly keepMounted?: boolean;
   }): Disposer;
   registerCloseHandler?(kind: string, handler: (tab: unknown) => void): Disposer;
-}
-
-/** The navigation controller: open and enumerate this Session's tabs. */
-interface SidebarFace {
-  openTab(kind: string, options?: {
-    readonly params?: Record<string, string>;
-    readonly revealIfOpened?: boolean;
-  }): void;
-  focus(tabId: string): void;
-  close?(tabId: string): void;
-  readonly openTabs: { getSnapshot(): readonly { readonly tabId: string; readonly sessionId: string; readonly kind: string }[] };
 }
 
 /** The Session fields that decide whether another prompt is accepted. */
@@ -101,7 +94,40 @@ function acceptsPrompt(ctx: Context, sessionId: string): boolean {
   }
 }
 
-/** Claim a settled-text selection and offer both actions on it. */
+/**
+ * Read the right-Sidebar face without depending on it.
+ *
+ * The service is not in this plugin's `inject` list, so the context accessor
+ * cannot see it; `get()` reads the registry directly and is the second chance
+ * when the injection has not fired yet.
+ *
+ * @param ctx - client root context.
+ * @returns the panel face, or nothing when this build does not carry it.
+ */
+function currentSidebar(ctx: Context): SidebarRightPort | undefined {
+  try {
+    const get = (ctx as unknown as { get?: (name: string) => unknown }).get;
+    if (typeof get !== 'function') return undefined;
+    const service = get.call(ctx, 'sidebarRight') as SidebarRightPort | undefined;
+    return typeof service?.openTab === 'function' ? service : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Claim a settled-text selection and offer both actions on it.
+ *
+ * The right-Sidebar face is deliberately *not* in this plugin's `inject` list —
+ * naming it there would make the whole theme wait on the panel. It is read
+ * inside its own injection instead, which is the only place the root context
+ * can see it: read straight off `ctx`, both services are undefined and the
+ * side-chat action would never appear.
+ *
+ * @param ctx - client root context carrying the interaction and slot services.
+ * @param environment - logging for this activation.
+ * @param scope - scope owning the styles, the cell, the interaction and the panel seats.
+ */
 export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironment, scope: CleanupScope): void {
   const interactions = (ctx.uiConversation as unknown as { interactions?: TextInteractionsPort } | undefined)
     ?.interactions;
@@ -114,16 +140,9 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
     environment.logger.debug('quote: no slot service; the action stays off');
     return;
   }
-  const face = ctx as unknown as { sidebarRight?: SidebarFace; sidebarRightTabs?: TabTypes };
-  const sidebar = face.sidebarRight;
-  const tabTypes = face.sidebarRightTabs;
-  const sideChat = sidebar !== undefined && typeof sidebar.openTab === 'function'
-    && tabTypes !== undefined && typeof tabTypes.register === 'function';
-  if (!sideChat) {
-    environment.logger.debug('quote: the right Sidebar is unavailable; the side-chat action stays off');
-  } else {
-    mountSideChat(ctx, environment, scope, slots, tabTypes);
-  }
+  /* Whatever the panel reports once it is up; the click reads it then, never at
+     mount time, because the face arrives on its own schedule. */
+  const panel: { sidebar?: SidebarRightPort | undefined } = {};
   /* The cell goes in before the admission: a claimed gesture whose cell never
      registered would swallow the selection and draw nothing, which is worse
      than leaving every other occupant of that surface free to claim it. */
@@ -134,9 +153,14 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
         name: DSH_SLOTS.textInteraction,
         key: QUOTE_ACTION_ID,
         inject: () => ({
-          ask: sideChat
-            ? (sessionId: string, text: string) => { void askInSideChat(ctx, environment, sidebar, sessionId, text); }
-            : undefined,
+          ask: (sessionId: string, text: string) => {
+            const sidebar = panel.sidebar ?? currentSidebar(ctx);
+            if (sidebar === undefined) {
+              environment.logger.debug('quote: the right panel is not up yet; the side chat was not opened');
+              return;
+            }
+            void askInSideChat(ctx, environment, sidebar, sessionId, text);
+          },
         }),
       },
       QuoteAction,
@@ -155,6 +179,21 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
       request.open();
     },
   }));
+  const fiber = ctx.inject(['sidebarRight', 'sidebarRightTabs'], child => {
+    const sidebar = resolveSidebarRight(child);
+    const tabs = resolveSidebarTabs(child) as unknown as TabTypes | undefined;
+    if (sidebar === undefined || tabs === undefined || typeof tabs.register !== 'function') {
+      environment.logger.debug('quote: the right Sidebar is incomplete; the side-chat action stays off');
+      return () => {};
+    }
+    panel.sidebar = sidebar;
+    const stop = mountSideChat(ctx, environment, slots, tabs);
+    return () => {
+      panel.sidebar = undefined;
+      stop();
+    };
+  });
+  scope.add(() => { void (fiber as unknown as { dispose(): unknown }).dispose(); });
 }
 
 /**
@@ -167,7 +206,7 @@ export function mountQuoteSelection(ctx: Context, environment: FeatureEnvironmen
 async function askInSideChat(
   ctx: Context,
   environment: FeatureEnvironment,
-  sidebar: SidebarFace,
+  sidebar: SidebarRightPort,
   mainSessionId: string,
   quote: string,
 ): Promise<void> {
@@ -184,41 +223,54 @@ async function askInSideChat(
   }
 }
 
-/** Register the side-chat page type, its body, and the conversation it renders. */
+/**
+ * Register the side-chat page type, its body, and the conversation it renders.
+ *
+ * @param ctx - client context carrying the Session controller.
+ * @param environment - logging for this activation.
+ * @param slots - slot service, already guarded by the caller.
+ * @param tabTypes - the panel's type registry, available only inside its injection.
+ * @returns the disposer releasing every registration made here.
+ */
 function mountSideChat(
   ctx: Context,
   environment: FeatureEnvironment,
-  scope: CleanupScope,
   slots: SlotSeat,
   tabTypes: TabTypes,
-): void {
-  scope.add(tabTypes.register({
-    id: SIDE_CHAT_KIND,
-    kind: SIDE_CHAT_KIND,
-    title: () => (document.documentElement.lang || '').toLowerCase().startsWith('zh') ? '侧问' : 'Side chat',
-    keepMounted: true,
-  }));
+): Disposer {
+  const disposers: Disposer[] = [];
+  const release = () => {
+    for (const dispose of disposers.splice(0).reverse()) {
+      try { dispose(); } catch { /* Keep releasing. */ }
+    }
+  };
   try {
-    scope.add(slots.inject('sidebar.right.pane.tab', () => slots.register({
+    disposers.push(tabTypes.register({
+      id: SIDE_CHAT_KIND,
+      kind: SIDE_CHAT_KIND,
+      title: () => (document.documentElement.lang || '').toLowerCase().startsWith('zh') ? '侧问' : 'Side chat',
+      keepMounted: true,
+    }));
+    disposers.push(slots.inject('sidebar.right.pane.tab', () => slots.register({
       name: 'sidebar.right.pane.tab',
       key: SIDE_CHAT_KIND,
       children: { 'sidebar.chat.conversation': { kind: 'single', scope: 'session' } },
       inject: () => ({ referenceFor: (sessionId: string) => referenceForSideChat(ctx, sessionId) }),
     }, SideChatTab)));
-    scope.add(slots.inject('sidebar.chat.conversation', () => slots.register({
+    disposers.push(slots.inject('sidebar.chat.conversation', () => slots.register({
       name: 'sidebar.chat.conversation',
     }, SideChatConversation)));
+    const offClose = tabTypes.registerCloseHandler?.(SIDE_CHAT_KIND, tab => {
+      const record = tab as { readonly contentId?: string; readonly params?: { readonly sessionId?: string } } | undefined;
+      const sessionId = record?.params?.sessionId ?? record?.contentId;
+      if (typeof sessionId === 'string') releaseSideChat(sessionId);
+    });
+    if (offClose !== undefined) disposers.push(offClose);
+    disposers.push(releaseAllSideChats);
   } catch (error) {
     environment.logger.error('side chat: the conversation seats were refused', error);
-    return;
+    release();
+    return () => {};
   }
-  scope.add(releaseAllSideChats);
-  /* The panel closes the tab on its own terms; the reference this plugin holds
-     has to go with it, or the Session stays retained for the whole process. */
-  const offClose = tabTypes.registerCloseHandler?.(SIDE_CHAT_KIND, tab => {
-    const record = tab as { readonly contentId?: string; readonly params?: { readonly sessionId?: string } } | undefined;
-    const sessionId = record?.params?.sessionId ?? record?.contentId;
-    if (typeof sessionId === 'string') releaseSideChat(sessionId);
-  });
-  if (offClose !== undefined) scope.add(offClose);
+  return release;
 }
